@@ -40,6 +40,12 @@ st.markdown(f"#### 📊 Live BTC Price: **${btc_price:,.0f}**")
 st.markdown(f"#### 📈 Live MSTR Price: **${mstr_price_live:,.2f}**")
 
 # ---- USER INPUTS ---- #
+
+st.markdown("### 📉 On-Chain Market Signals")
+sth_mvrv_z = st.number_input("Current STH-MVRV-Z Score", value=1.00, step=0.1,
+    help="Z-score above 6 historically signals a topping structure; <1 implies undervaluation.")
+funding_rate = st.number_input("Current Futures Funding Rate (%)", value=2.00, step=0.01,
+    help="High values (e.g., >0.1%) may indicate overheated markets or bullish bias.")
 shares_held = st.number_input("Shares Held", value=default_shares, step=10)
 current_age = st.number_input("Your Age", value=48, step=1)
 selected_threshold = st.selectbox("Rotation Trigger Threshold ($)", thresholds)
