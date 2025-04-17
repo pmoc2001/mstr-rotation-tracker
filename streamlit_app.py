@@ -23,7 +23,15 @@ except IndexError:
     st.stop()
 
 # ---- STREAMLIT APP ---- #
+st.set_page_config(page_title="MSTR Rotation Tracker", layout="wide")
 st.title("📈 MSTR Rotation Tracker")
+
+st.markdown("""
+This tool helps long-term MSTR holders make probabilistic, data-driven rotation decisions using Bayesian logic and on-chain market signals.
+
+> ⚠️ **Why use this?**
+> To avoid over-indexing on single market moves, and instead rotate strategically using tools like STH-SOPA, STH-MVRV-Z, and Futures Funding Rates.
+""")
 
 st.markdown(f"#### 📊 Live BTC Price: **${btc_price:,.0f}**")
 st.markdown(f"#### 📈 Live MSTR Price: **${mstr_price_live:,.2f}**")
@@ -38,18 +46,41 @@ threshold_met = portfolio_value >= selected_threshold
 
 # ---- INTERACTIVE BAYESIAN PROBABILITY ---- #
 st.markdown("### 🧠 Bayesian Model Settings")
+
+with st.expander("What is 'Historical Evidence Weight'?"):
+    st.write("""
+    This controls how much you trust prior simulations.
+    - Low = flexible/adaptive (quick to respond to new signals)
+    - High = stable/conservative (rely heavily on past data)
+    
+    On-chain indicators below will adjust this automatically.
+    """)
+
 data_points = st.slider("Historical Evidence Weight (Data Points)", min_value=10, max_value=500, value=100, step=10)
 
-# ---- STH-SOPA Manual Input ---- #
-sth_sopa = st.number_input("Current STH-SOPA Value (manually input from Glassnode or chart)", value=1.00, step=0.01)
+# ---- Manual Inputs for On-Chain Metrics ---- #
+sth_sopa = st.number_input("Current STH-SOPA", value=1.00, step=0.01,
+                          help="Short-term holder profit ratio. >1 is bullish, <1 is bearish.")
+sth_mvrv_z = st.number_input("Current STH-MVRV-Z Score", value=0.00, step=0.1,
+                            help="Z-score above 6 historically signals a topping structure.")
+funding_rate = st.number_input("Current Futures Funding Rate (%)", value=0.0, step=0.01,
+                              help="Positive values suggest bullish bias; extreme values may indicate overheated conditions.")
 
-# Adjust confidence based on STH-SOPA
+# ---- Adjust data_points based on inputs ---- #
 if sth_sopa > 1:
-    st.success("📈 STH-SOPA > 1: Market in profit — increasing model confidence")
+    st.success("📈 STH-SOPA > 1: Market in profit — increasing confidence")
     data_points += 50
 elif sth_sopa < 1:
-    st.warning("📉 STH-SOPA < 1: Market in loss — decreasing model confidence")
-    data_points = max(data_points - 25, 10)  # avoid dropping below minimum
+    st.warning("📉 STH-SOPA < 1: Market in loss — reducing confidence")
+    data_points = max(data_points - 25, 10)
+
+if sth_mvrv_z > 6:
+    st.warning("⚠️ STH-MVRV-Z > 6: Possible topping signal — reducing confidence")
+    data_points = max(data_points - 25, 10)
+
+if funding_rate > 0.1:
+    st.warning("⚠️ Funding rate > 0.1%: Overheating market — reducing confidence")
+    data_points = max(data_points - 25, 10)
 
 confidence_boost = 1 if threshold_met else 0
 prior_successes = int(bayesian_prior * data_points)
@@ -92,4 +123,13 @@ ax.grid(True)
 st.pyplot(fig)
 
 st.markdown("---")
-st.caption("This tool uses Monte Carlo-informed Bayesian logic and live market data to help you time MSTR portfolio rotation.\n\n'Historical evidence' represents how confident you are in past simulations and assumptions. More data points = more trust in the prior probability.\n\nSTH-SOPA > 1 signals BTC market profit-taking, increasing trust. STH-SOPA < 1 signals caution.")
+st.caption("""
+This tool uses Monte Carlo-informed Bayesian logic and market signals to help you time MSTR portfolio rotation.
+
+- **Historical evidence** = trust in prior simulations
+- **STH-SOPA** = short-term holder profit ratio
+- **STH-MVRV-Z** = short-term market valuation stress
+- **Funding Rate** = bullish/bearish positioning in futures markets
+
+Avoid overreacting to short-term noise — rotate based on data + probability.
+""")
