@@ -40,12 +40,10 @@ st.markdown(f"#### 📊 Live BTC Price: **${btc_price:,.0f}**")
 st.markdown(f"#### 📈 Live MSTR Price: **${mstr_price_live:,.2f}**")
 
 # ---- USER INPUTS ---- #
-
 st.markdown("### 📉 On-Chain Market Signals")
-sth_mvrv_z = st.number_input("Current STH-MVRV-Z Score", value=1.00, step=0.1,
-    help="Z-score above 6 historically signals a topping structure; <1 implies undervaluation.")
-funding_rate = st.number_input("Current Futures Funding Rate (%)", value=2.00, step=0.01,
-    help="High values (e.g., >0.1%) may indicate overheated markets or bullish bias.")
+sth_mvrv_z = st.number_input("Current STH-MVRV-Z Score", value=1.00, step=0.1)
+funding_rate = st.number_input("Current Futures Funding Rate (%)", value=2.00, step=0.01)
+
 shares_held = st.number_input("Shares Held", value=default_shares, step=10)
 current_age = st.number_input("Your Age", value=48, step=1)
 selected_threshold = st.selectbox("Rotation Trigger Threshold ($)", thresholds)
@@ -78,14 +76,14 @@ strk_income = rotation_value * (strk_pct / 100) * strk_yield
 strf_income = rotation_value * (strf_pct / 100) * strf_yield
 total_income = msty_income + strk_income + strf_income
 
-# ---- PLOTTING ---- #
+# ---- PLOTTING MONTE CARLO ---- #
 years = np.arange(current_age, current_age + n_years + 1)
 mean_projection = simulations.mean(axis=1)
 
 fig, ax = plt.subplots(figsize=(10, 5))
 ax.plot(years, mean_projection, label="Mean Portfolio Value", linewidth=2)
 ax.axvline(current_age + 7, linestyle='--', color='gray', label='Full Retirement')
-ax.fill_between(years, mean_projection - mean_projection.std(axis=0), mean_projection + mean_projection.std(axis=0), color='blue', alpha=0.1)
+ax.fill_between(years, mean_projection - simulations.std(axis=1), mean_projection + simulations.std(axis=1), color='blue', alpha=0.1)
 ax.set_title("Projected Portfolio Value with Rotation & Income")
 ax.set_xlabel("Age")
 ax.set_ylabel("Portfolio Value ($)")
@@ -94,3 +92,32 @@ ax.grid(True)
 st.pyplot(fig)
 
 st.markdown(f"### 💸 Estimated Annual Income After Rotation: **${total_income:,.0f}**")
+
+# ---- BAYESIAN CHART ---- #
+confidence_boost = 1 if initial_value >= selected_threshold else 0
+data_points = 100
+prior_successes = int(bayesian_prior * data_points)
+successes = prior_successes + confidence_boost
+posterior_prob = (successes + 1) / (data_points + 2)
+
+x_vals = np.arange(10, 501, 10)
+y_vals = [(int(bayesian_prior * x) + confidence_boost + 1) / (x + 2) for x in x_vals]
+
+fig2, ax2 = plt.subplots()
+ax2.plot(x_vals, y_vals, label="Bayesian Probability", color="blue")
+ax2.axhline(y=posterior_prob, color='green', linestyle='--', label=f"Current: {posterior_prob:.1%}")
+ax2.set_title("Bayesian Probability vs. Historical Evidence")
+ax2.set_xlabel("Number of Data Points (Historical Evidence)")
+ax2.set_ylabel("Posterior Probability")
+ax2.legend()
+ax2.grid(True)
+st.pyplot(fig2)
+
+st.caption("""
+This tool uses Monte Carlo-informed Bayesian logic and market signals to help you time MSTR portfolio rotation.
+
+- **STH-MVRV-Z** = short-term holder unrealized profit/loss vs cost basis (Z-score); >6 may signal tops, <1 undervaluation
+- **Funding Rate** = bullish/bearish positioning in futures markets
+
+Avoid overreacting to short-term noise — rotate based on data + probability.
+""")
