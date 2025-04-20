@@ -62,6 +62,16 @@ confidence_boost = 1 if portfolio_value >= selected_threshold else 0
 prior_successes = int(bayesian_prior * data_points)
 posterior_prob = (prior_successes + confidence_boost + 1) / (data_points + 2)
 
+with st.expander("🧠 What is Bayesian Rotation Probability?"):
+    st.markdown("""
+    This number reflects the **calculated probability** (using Bayesian inference) that rotating some MSTR now is the optimal decision — based on both historical success rates and real-time market signals (STH-SOPA, MVRV-Z, Funding Rate).
+
+    - >60% = strong signal to rotate
+    - 50–60% = watch closely
+    - <50% = wait
+
+    The model becomes more confident as historical evidence increases and current conditions align with past profitable outcomes.
+    """)
 st.metric("🧠 Bayesian Rotation Probability", f"{posterior_prob:.1%}")
 
 # ---- SECTION 3: ROTATION ALLOCATION ---- #
@@ -83,6 +93,7 @@ est_income = (rotation_value * (msty_pct/100) * msty_yield +
 st.metric("💸 Projected Annual Income from Rotation", f"${est_income:,.0f}")
 
 # ---- SECTION 4: MONTE CARLO PROJECTION ---- #
+retirement_age = st.slider("Target Retirement Age", min_value=current_age + 1, max_value=current_age + n_years, value=current_age + 7)
 st.header("4️⃣ Monte Carlo Forecast")
 
 np.random.seed(42)
@@ -104,7 +115,7 @@ fig, ax = plt.subplots()
 ax.plot(years, mean_projection, label="Mean Portfolio Value", linewidth=2)
 ax.fill_between(years, mean_projection - sim.std(axis=1), mean_projection + sim.std(axis=1), alpha=0.2)
 ax.plot(years, cumulative_income, label="Cumulative Income", linestyle="--", color="green")
-ax.axvline(current_age + 7, color='gray', linestyle='--', label='Full Retirement')
+ax.axvline(retirement_age, color='gray', linestyle='--', label='Target Retirement Age')
 ax.set_title("Projected Portfolio Value & Cumulative Income")
 ax.set_xlabel("Age")
 ax.set_ylabel("USD")
