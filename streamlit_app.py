@@ -41,6 +41,7 @@ st.markdown(f"#### 📈 Live MSTR Price: **${mstr_price_live:,.2f}**")
 
 # ---- USER INPUTS ---- #
 st.markdown("### 📉 On-Chain Market Signals")
+sth_sopa = st.number_input("Current STH-SOPA", value=1.00, step=0.01)
 sth_mvrv_z = st.number_input("Current STH-MVRV-Z Score", value=1.00, step=0.1)
 funding_rate = st.number_input("Current Futures Funding Rate (%)", value=2.00, step=0.01)
 
@@ -76,6 +77,24 @@ strk_income = rotation_value * (strk_pct / 100) * strk_yield
 strf_income = rotation_value * (strf_pct / 100) * strf_yield
 total_income = msty_income + strk_income + strf_income
 
+# ---- DYNAMIC CONFIDENCE MODIFIERS ---- #
+data_points = 100
+if sth_sopa > 1:
+    data_points += 50
+elif sth_sopa < 1:
+    data_points = max(data_points - 25, 10)
+
+if sth_mvrv_z > 6:
+    data_points = max(data_points - 25, 10)
+
+if funding_rate > 0.1:
+    data_points = max(data_points - 25, 10)
+
+confidence_boost = 1 if initial_value >= selected_threshold else 0
+prior_successes = int(bayesian_prior * data_points)
+successes = prior_successes + confidence_boost
+posterior_prob = (successes + 1) / (data_points + 2)
+
 # ---- PLOTTING MONTE CARLO ---- #
 years = np.arange(current_age, current_age + n_years + 1)
 mean_projection = simulations.mean(axis=1)
@@ -94,12 +113,6 @@ st.pyplot(fig)
 st.markdown(f"### 💸 Estimated Annual Income After Rotation: **${total_income:,.0f}**")
 
 # ---- BAYESIAN CHART ---- #
-confidence_boost = 1 if initial_value >= selected_threshold else 0
-data_points = 100
-prior_successes = int(bayesian_prior * data_points)
-successes = prior_successes + confidence_boost
-posterior_prob = (successes + 1) / (data_points + 2)
-
 x_vals = np.arange(10, 501, 10)
 y_vals = [(int(bayesian_prior * x) + confidence_boost + 1) / (x + 2) for x in x_vals]
 
@@ -116,6 +129,7 @@ st.pyplot(fig2)
 st.caption("""
 This tool uses Monte Carlo-informed Bayesian logic and market signals to help you time MSTR portfolio rotation.
 
+- **STH-SOPA** = short-term holder spent output profit ratio; >1 means BTC is in profit, <1 means underwater
 - **STH-MVRV-Z** = short-term holder unrealized profit/loss vs cost basis (Z-score); >6 may signal tops, <1 undervaluation
 - **Funding Rate** = bullish/bearish positioning in futures markets
 
