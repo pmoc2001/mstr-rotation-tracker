@@ -98,27 +98,33 @@ st.header("4️⃣ Monte Carlo Forecast")
 
 np.random.seed(42)
 sim = np.zeros((n_years + 1, num_simulations))
+sim_hold = np.zeros((n_years + 1, num_simulations))
 sim_income = np.zeros((n_years + 1, num_simulations))
 sim[0] = portfolio_value
-sim_income[:, :] = est_income  # constant income overlay
+sim_hold[0] = portfolio_value
+sim_income[:, :] = est_income / 12  # monthly income overlay
 
 for t in range(1, n_years + 1):
     rand = np.random.normal(0, 1, num_simulations)
     sim[t] = sim[t - 1] * np.exp((expected_return - 0.5 * volatility**2) + volatility * rand)
+    sim_hold[t] = sim_hold[t - 1] * np.exp((expected_return - 0.5 * volatility**2) + volatility * rand)
 
+# Compute means
 years = np.arange(current_age, current_age + n_years + 1)
-mean_projection = sim.mean(axis=1)
-mean_income = sim_income.mean(axis=1)
-cumulative_income = np.cumsum(mean_income)
+mean_rotated = sim.mean(axis=1)
+mean_held = sim_hold.mean(axis=1)
+monthly_income_path = sim_income.mean(axis=1)
+cumulative_income = np.cumsum(monthly_income_path)
 
+# Create side-by-side chart
 fig, ax = plt.subplots()
-ax.plot(years, mean_projection, label="Mean Portfolio Value", linewidth=2)
-ax.fill_between(years, mean_projection - sim.std(axis=1), mean_projection + sim.std(axis=1), alpha=0.2)
-ax.plot(years, cumulative_income, label="Cumulative Income", linestyle="--", color="green")
-ax.axvline(retirement_age, color='gray', linestyle='--', label='Target Retirement Age')
-ax.set_title("Projected Portfolio Value & Cumulative Income")
+ax.plot(years, mean_rotated, label="Portfolio (Rotation)", linewidth=2)
+ax.plot(years, mean_held, label="Portfolio (Hold MSTR)", linestyle='--')
+ax.plot(years, cumulative_income, label="Cumulative Income (Rotated)", linestyle="--", color="green")
+ax.set_title("Portfolio Growth vs Rotation + Income")
 ax.set_xlabel("Age")
 ax.set_ylabel("USD")
+ax.axvline(retirement_age, color='gray', linestyle='--', label='Target Retirement Age')
 ax.grid(True)
 ax.legend()
 st.pyplot(fig)
@@ -140,9 +146,34 @@ st.pyplot(fig2)
 
 # ---- SUMMARY ---- #
 st.header("✅ Summary & Recommendation")
+
+st.markdown("""
+### 🧭 What Should I Do?
+
+Based on all inputs — including your portfolio size, market conditions, and Bayesian model — here’s what you might consider:
+
+- **Rotation means**: Selling some MSTR now and putting it into income-generating assets (STRK, STRF, MSTY).
+- This decision is based on:
+  - MSTR portfolio value vs. thresholds
+  - Market signals (SOPA, MVRV, Funding Rate)
+  - Historical probability of success
+
+---
+""")
+
 if posterior_prob >= 0.60:
-    st.success("Rotation recommended: Bayesian probability exceeds 60%.")
+    st.success("📈 Recommended: Consider rotating up to your selected percentage.")
+    st.markdown(f"🔁 You chose to simulate rotating **{int(rotate_now * 100)}%** now → this would generate **${est_income:,.0f}/yr** in projected income.")
+    st.markdown(f"📅 Your selected retirement age is **{retirement_age}**. Use the chart above to see if your income projection supports that plan.")
 elif 0.50 <= posterior_prob < 0.60:
-    st.info("Rotation possible: Market conditions uncertain, monitor closely.")
+    st.info("🟡 Hold & Monitor: Signals are mixed.")
+    st.markdown("The decision to rotate could become clearer if:")
+    st.markdown("- SOPA rises above 1
+- Your portfolio reaches a threshold
+- Market rates (funding, MVRV-Z) cool down")
 else:
-    st.warning("Rotation not advised: Confidence is too low based on current signals.")
+    st.warning("🟥 Not Recommended: Conditions do not currently favor a rotation.")
+    st.markdown("📉 Your confidence score is below 50%. Keep watching for better signals.")
+
+st.markdown("---")
+st.markdown("ℹ️ This tool is for exploration and education. You can adjust inputs to see how different decisions affect retirement outcomes.")
