@@ -73,19 +73,15 @@ if st.checkbox("Manually Adjust Allocation"):
 
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
 
-    # Dynamically calculate slider max for STRK based on MSTY
-    max_strk_pct = 100 - msty_pct
+    max_strk_pct = max(0, 100 - msty_pct)
     strk_default = min(strk_pct, max_strk_pct)
     strk_pct = st.slider("STRK (%)", 0, max_strk_pct, strk_default)
 
-    # Automatically assign remainder to STRF
     strf_pct = 100 - msty_pct - strk_pct
-    st.write(f"STRF (%): {strf_pct}%")
-
-    # Safety check in case of rounding issues
     if strf_pct < 0:
-        st.error("Adjust sliders: Total allocation cannot exceed 100%.")
+        st.error("Allocation error: Total cannot exceed 100%. Adjust sliders.")
         strf_pct = 0
+    st.write(f"STRF (%): {strf_pct}%")
 
 rotation_value = portfolio_value * rotation_percent
 est_income = rotation_value * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
