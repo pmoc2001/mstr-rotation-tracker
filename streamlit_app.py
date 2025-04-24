@@ -72,7 +72,7 @@ st.header("🔀 Allocation to Income Products")
 if st.checkbox("Manually Adjust Allocation"):
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
     max_strk_pct = 100 - msty_pct
-    strk_pct = st.slider("STRK (%)", 0, max_strk_pct, min(strk_pct, max_strk_pct))
+    strk_pct = st.slider("STRK (%)", 0, max_strk_pct, min(strk_pct, max(max_strk_pct, 0)))
     strf_pct = 100 - msty_pct - strk_pct
     st.write(f"STRF (%): {strf_pct}%")
 
