@@ -71,17 +71,32 @@ msty_pct, strk_pct, strf_pct = [round(alloc*100) for alloc in optimal_alloc]
 st.header("🔀 Allocation to Income Products")
 if st.checkbox("Manually Adjust Allocation"):
 
+    # 1) Always let MSTY go 0–100%
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
 
-    max_strk_pct = max(0, 100 - msty_pct)
-    strk_default = min(strk_pct, max_strk_pct)
-    strk_pct = st.slider("STRK (%)", 0, max_strk_pct, strk_default)
+    # 2) Only show a STRK slider if there’s room after MSTY
+    max_strk_pct = 100 - msty_pct
+    if max_strk_pct > 0:
+        # ensure default is within [0, max_strk_pct]
+        strk_default = min(strk_pct, max_strk_pct)
+        strk_pct = st.slider("STRK (%)", 0, max_strk_pct, strk_default)
+    else:
+        strk_pct = 0  # no room for STRK
 
+    # 3) Whatever remains goes to STRF
     strf_pct = 100 - msty_pct - strk_pct
-    if strf_pct < 0:
-        st.error("Allocation error: Total cannot exceed 100%. Adjust sliders.")
-        strf_pct = 0
     st.write(f"STRF (%): {strf_pct}%")
+
+    # 4) Safety check
+    if strf_pct < 0:
+        st.error("Total allocation exceeds 100%. Please adjust MSTY/STRK sliders.")
+        # You could also reset to defaults here if you prefer:
+        # msty_pct, strk_pct, strf_pct = map(int, optimal_alloc*100)
+
+else:
+    # when not in manual mode, use the optimizer’s result
+    msty_pct, strk_pct, strf_pct = [round(x*100) for x in optimal_alloc]
+
 
 rotation_value = portfolio_value * rotation_percent
 est_income = rotation_value * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
