@@ -71,7 +71,8 @@ msty_pct, strk_pct, strf_pct = [round(alloc*100) for alloc in optimal_alloc]
 st.header("🔀 Allocation to Income Products")
 if st.checkbox("Manually Adjust Allocation"):
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
-    strk_pct = st.slider("STRK (%)", 0, 100 - msty_pct, strk_pct)
+    max_strk_pct = 100 - msty_pct
+    strk_pct = st.slider("STRK (%)", 0, max_strk_pct, min(strk_pct, max_strk_pct))
     strf_pct = 100 - msty_pct - strk_pct
     st.write(f"STRF (%): {strf_pct}%")
 
@@ -86,12 +87,13 @@ fig, ax = plt.subplots(figsize=(10, 2))
 ax.axvline(current_age, color='blue', linestyle='-', label='Today')
 ax.axvline(retirement_age, color='gray', linestyle='--', label='Retirement')
 if posterior_prob >= 0.60:
-    ax.text(current_age, 0.5, 'Rotate Now', fontsize=12, color='green', ha='center')
+    decision_label, decision_color = 'Rotate Now', 'green'
 elif posterior_prob >= 0.50:
-    ax.text((current_age+retirement_age)/2, 0.5, 'Wait & Monitor', fontsize=12, color='orange', ha='center')
+    decision_label, decision_color = 'Wait & Monitor', 'orange'
 else:
-    ax.text(retirement_age, 0.5, 'Hold', fontsize=12, color='red', ha='center')
-ax.set_xlim(current_age-1, retirement_age+1)
+    decision_label, decision_color = 'Hold', 'red'
+ax.text((current_age + retirement_age) / 2, 0.5, decision_label, fontsize=12, color=decision_color, ha='center')
+ax.set_xlim(current_age - 1, retirement_age + 1)
 ax.get_yaxis().set_visible(False)
 ax.set_xlabel("Age")
 ax.legend()
@@ -99,24 +101,27 @@ st.pyplot(fig)
 
 # ---- MONTE CARLO SIMULATION ---- #
 np.random.seed(42)
-years = np.arange(current_age, retirement_age+1)
+years = np.arange(current_age, retirement_age + 1)
 sim_rotated = np.zeros((len(years), num_simulations))
-sim_income = np.full(len(years), est_income/12)
+sim_income = np.full(len(years), est_income)
 
 sim_rotated[0] = portfolio_value - rotation_value
 for t in range(1, len(years)):
     sim_rotated[t] = sim_rotated[t-1] * np.exp((expected_return - 0.5*volatility**2) + volatility*np.random.normal(size=num_simulations))
 
 mean_rotated = sim_rotated.mean(axis=1)
-cum_income = np.cumsum(sim_income)*12
 
 # ---- VISUALIZATION ---- #
 fig2, ax2 = plt.subplots()
 ax2.plot(years, mean_rotated, label="Portfolio Value")
-ax2.bar(years, sim_income*12, alpha=0.5, label="Annual Income")
+bars = ax2.bar(years, sim_income, alpha=0.5, label="Annual Income")
+for bar in bars:
+    height = bar.get_height()
+    ax2.annotate(f'${height:,.0f}', xy=(bar.get_x() + bar.get_width()/2, height), xytext=(0, 3), textcoords='offset points', ha='center', va='bottom', fontsize=8)
 ax2.axvline(retirement_age, linestyle='--', color='gray', label='Retirement Age')
 ax2.set_title("Portfolio Value & Annual Income")
 ax2.set_xlabel("Age")
 ax2.set_ylabel("USD")
 ax2.legend()
+ax2.ticklabel_format(style='plain', axis='y')
 st.pyplot(fig2)
