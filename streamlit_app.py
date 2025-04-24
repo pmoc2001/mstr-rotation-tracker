@@ -10,14 +10,13 @@ rotation_percent = 0.20
 thresholds = [600_000, 750_000, 1_000_000]
 bayesian_prior = 0.515
 num_simulations = 1000
-n_years = 22
 volatility = 0.7
 expected_return = 0.25
 msty_yield, strk_yield, strf_yield = 0.20, 0.075, 0.075
 
 # ---- STREAMLIT CONFIG ---- #
 st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
-st.title("📊 MSTR Retirement Decision Assistant")
+st.title("\ud83d\udcca MSTR Retirement Decision Assistant")
 
 st.markdown("""
 This assistant helps you decide **when and how** to rotate your MSTR holdings into income-generating investments (MSTY, STRK, STRF) clearly and intuitively.
@@ -35,7 +34,7 @@ retirement_age = st.sidebar.slider("Retirement Age", min_value=current_age + 1, 
 selected_threshold = st.sidebar.selectbox("Rotation Threshold ($)", thresholds)
 
 portfolio_value = mstr_price * shares_held
-st.metric("💼 Current Portfolio Value", f"${portfolio_value:,.0f}")
+st.metric("\ud83d\udcbc Current Portfolio Value", f"${portfolio_value:,.0f}")
 
 # ---- MARKET SIGNALS ---- #
 st.sidebar.header("Market Conditions")
@@ -43,68 +42,66 @@ sth_sopa = st.sidebar.number_input("STH-SOPA", value=1.00, step=0.01)
 sth_mvrv_z = st.sidebar.number_input("STH-MVRV-Z", value=1.00, step=0.1)
 funding_rate = st.sidebar.number_input("Futures Funding Rate (%)", value=2.00, step=0.01)
 
+# ---- AGE SENSITIVITY ---- #
+years_to_retirement = retirement_age - current_age
+age_weight = np.clip(1 - (years_to_retirement / 20), 0, 1)
+
 # ---- BAYESIAN DECISION ---- #
 data_points = 100
 if sth_sopa > 1: data_points += 50
 elif sth_sopa < 1: data_points -= 25
 if sth_mvrv_z > 6: data_points -= 25
 if funding_rate > 0.1: data_points -= 25
-data_points = max(data_points, 10)
+confidence_boost = int(age_weight * 2)
+if portfolio_value >= selected_threshold:
+    confidence_boost += 1
 
-confidence_boost = 1 if portfolio_value >= selected_threshold else 0
+data_points = max(data_points, 10)
 prior_successes = int(bayesian_prior * data_points)
 posterior_prob = (prior_successes + confidence_boost + 1) / (data_points + 2)
 
 # ---- OPTIMIZATION FUNCTION ---- #
-def optimize_yield():
+def blended_objective(age_years_left):
+    growth_bias = np.clip(age_years_left / 20, 0, 1)
+    target_yields = [msty_yield, strk_yield * growth_bias, strf_yield]
     def neg_income(x):
-        return -(x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-    constraints = ({'type': 'eq', 'fun': lambda x: sum(x)-1})
-    bounds = [(0,1)]*3
-    result = minimize(neg_income, [0.33,0.33,0.34], bounds=bounds, constraints=constraints)
-    return result.x if result.success else [0.33,0.33,0.34]
+        return -(x[0]*target_yields[0] + x[1]*target_yields[1] + x[2]*target_yields[2])
+    return neg_income
 
-optimal_alloc = optimize_yield()
-msty_pct, strk_pct, strf_pct = [round(alloc*100) for alloc in optimal_alloc]
+bounds = [(0,1)]*3
+constraints = ({'type': 'eq', 'fun': lambda x: sum(x)-1})
+result = minimize(blended_objective(years_to_retirement), [0.33,0.33,0.34], bounds=bounds, constraints=constraints)
+optimal_alloc = result.x if result.success else [0.33,0.33,0.34]
+msty_pct, strk_pct, strf_pct = [round(x*100) for x in optimal_alloc]
 
 # ---- ALLOCATION OVERRIDE ---- #
-st.header("🔀 Allocation to Income Products")
+st.header("\ud83d\udd00 Allocation to Income Products")
 if st.checkbox("Manually Adjust Allocation"):
-
-    # 1) Always let MSTY go 0–100%
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
-
-    # 2) Only show a STRK slider if there’s room after MSTY
     max_strk_pct = 100 - msty_pct
     if max_strk_pct > 0:
-        # ensure default is within [0, max_strk_pct]
-        strk_default = min(strk_pct, max_strk_pct)
-        strk_pct = st.slider("STRK (%)", 0, max_strk_pct, strk_default)
+        strk_pct = st.slider("STRK (%)", 0, max_strk_pct, min(strk_pct, max_strk_pct))
     else:
-        strk_pct = 0  # no room for STRK
-
-    # 3) Whatever remains goes to STRF
+        strk_pct = 0
     strf_pct = 100 - msty_pct - strk_pct
     st.write(f"STRF (%): {strf_pct}%")
-
-    # 4) Safety check
     if strf_pct < 0:
         st.error("Total allocation exceeds 100%. Please adjust MSTY/STRK sliders.")
-        # You could also reset to defaults here if you prefer:
-        # msty_pct, strk_pct, strf_pct = map(int, optimal_alloc*100)
-
 else:
-    # when not in manual mode, use the optimizer’s result
     msty_pct, strk_pct, strf_pct = [round(x*100) for x in optimal_alloc]
-
 
 rotation_value = portfolio_value * rotation_percent
 est_income = rotation_value * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
 
-st.metric("💸 Annual Income from Rotation", f"${est_income:,.0f}")
+st.metric("\ud83d\udcb8 Annual Income from Rotation", f"${est_income:,.0f}")
+
+# ---- TOTAL RETIREMENT INCOME ESTIMATE ---- #
+years_retired = 90 - retirement_age
+total_income_estimate = est_income * years_retired
+st.metric("\ud83d\udcc8 Estimated Total Retirement Income", f"${total_income_estimate:,.0f}")
 
 # ---- DECISION TIMELINE ---- #
-st.header("📅 Rotation Timeline")
+st.header("\ud83d\uddd5\ufe0f Rotation Timeline")
 fig, ax = plt.subplots(figsize=(10, 2))
 ax.axvline(current_age, color='blue', linestyle='-', label='Today')
 ax.axvline(retirement_age, color='gray', linestyle='--', label='Retirement')
