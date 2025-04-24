@@ -168,9 +168,11 @@ if posterior_prob >= 0.60:
 elif 0.50 <= posterior_prob < 0.60:
     st.info("🟡 Hold & Monitor: Signals are mixed.")
     st.markdown("The decision to rotate could become clearer if:")
-    st.markdown("- SOPA rises above 1
+    st.markdown("""
+- SOPA rises above 1
 - Your portfolio reaches a threshold
-- Market rates (funding, MVRV-Z) cool down")
+- Market rates (funding, MVRV-Z) cool down
+""")
 else:
     st.warning("🟥 Not Recommended: Conditions do not currently favor a rotation.")
     st.markdown("📉 Your confidence score is below 50%. Keep watching for better signals.")
