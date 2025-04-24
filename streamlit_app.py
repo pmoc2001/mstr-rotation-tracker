@@ -123,4 +123,4 @@ st.metric("💸 Annual Income", f"${ann_income:,.0f}")
 # ---- TIMELINE ---- #
 st.header("📅 Timeline")
 fig, ax = plt.subplots(figsize=(10,2))
-ax.axvline(age
+ax.axvline(age, color='red', linestyle='--', label='Current Age')
