@@ -16,7 +16,7 @@ msty_yield, strk_yield, strf_yield = 0.20, 0.075, 0.075
 
 # ---- STREAMLIT CONFIG ---- #
 st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
-st.title("\ud83d\udcca MSTR Retirement Decision Assistant")
+st.title("📊 MSTR Retirement Decision Assistant")
 
 st.markdown("""
 This assistant helps you decide **when and how** to rotate your MSTR holdings into income-generating investments (MSTY, STRK, STRF) clearly and intuitively.
@@ -34,7 +34,7 @@ retirement_age = st.sidebar.slider("Retirement Age", min_value=current_age + 1, 
 selected_threshold = st.sidebar.selectbox("Rotation Threshold ($)", thresholds)
 
 portfolio_value = mstr_price * shares_held
-st.metric("\ud83d\udcbc Current Portfolio Value", f"${portfolio_value:,.0f}")
+st.metric("💼 Current Portfolio Value", f"${portfolio_value:,.0f}")
 
 # ---- MARKET SIGNALS ---- #
 st.sidebar.header("Market Conditions")
@@ -75,7 +75,7 @@ optimal_alloc = result.x if result.success else [0.33,0.33,0.34]
 msty_pct, strk_pct, strf_pct = [round(x*100) for x in optimal_alloc]
 
 # ---- ALLOCATION OVERRIDE ---- #
-st.header("\ud83d\udd00 Allocation to Income Products")
+st.header("🔀 Allocation to Income Products")
 if st.checkbox("Manually Adjust Allocation"):
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
     max_strk_pct = 100 - msty_pct
@@ -93,15 +93,15 @@ else:
 rotation_value = portfolio_value * rotation_percent
 est_income = rotation_value * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
 
-st.metric("\ud83d\udcb8 Annual Income from Rotation", f"${est_income:,.0f}")
+st.metric("💸 Annual Income from Rotation", f"${est_income:,.0f}")
 
 # ---- TOTAL RETIREMENT INCOME ESTIMATE ---- #
 years_retired = 90 - retirement_age
 total_income_estimate = est_income * years_retired
-st.metric("\ud83d\udcc8 Estimated Total Retirement Income", f"${total_income_estimate:,.0f}")
+st.metric("📈 Estimated Total Retirement Income", f"${total_income_estimate:,.0f}")
 
 # ---- DECISION TIMELINE ---- #
-st.header("\ud83d\uddd5\ufe0f Rotation Timeline")
+st.header("📅 Rotation Timeline")
 fig, ax = plt.subplots(figsize=(10, 2))
 ax.axvline(current_age, color='blue', linestyle='-', label='Today')
 ax.axvline(retirement_age, color='gray', linestyle='--', label='Retirement')
