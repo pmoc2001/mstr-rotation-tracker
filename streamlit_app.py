@@ -92,13 +92,13 @@ if rot_age is not None:
 
 # ---- ALLOCATION OPTIMIZER (RISK-ADJUSTED) ---- #
 def score_alloc(x):
-    target = age if action == "Rotate Now" else retire_age
-    yrs_rot = target - age
-    proj_val = current_value * np.exp(btc_return * yrs_rot)
-    rot_amt  = proj_val * rotation_percent
+    target    = age if action == "Rotate Now" else retire_age
+    yrs_rot   = target - age
+    proj_val  = current_value * np.exp(btc_return * yrs_rot)
+    rot_amt   = proj_val * rotation_percent
 
     ann_inc  = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-    yrs_ret  = max(0, 82 - retire_age)  # income through age 82
+    yrs_ret  = max(0, 82 - retire_age)
     cum_inc  = ann_inc * yrs_ret
 
     caps = []
@@ -146,7 +146,7 @@ def project_outcomes(rotation_age):
     ann_inc  = rot_amt * (
         msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield
     )
-    cum_inc  = ann_inc * yrs_ret
+    cum_inc = ann_inc * yrs_ret
     return cap_end, cum_inc
 
 cap_now, inc_now = project_outcomes(age)
@@ -187,34 +187,39 @@ st.pyplot(fig)
 
 # ---- CASH-FLOW OUTLOOK THROUGH AGE 82 ---- #
 st.subheader("📈 Cash-Flow Outlook Through Age 82")
+death_age = 82
 yrs_to_rot = (rot_age or retire_age) - age
-yrs_post   = 82 - (rot_age or retire_age)
+yrs_post   = death_age - (rot_age or retire_age)
 sim        = np.zeros((yrs_to_rot+yrs_post+1, num_simulations))
 sim[0]     = current_value
 
-# Phase 1: growth
 for t in range(1, yrs_to_rot+1):
-    sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2) + volatility*np.random.randn(num_simulations))
-# Freeze capital at rotation
+    sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2)
+                                + volatility * np.random.randn(num_simulations))
 for t in range(yrs_to_rot+1, yrs_to_rot+yrs_post+1):
     sim[t] = sim[yrs_to_rot]
 
 mean_path = sim.mean(axis=1)
-ages_all  = np.arange(age, 82+1)
+ages_all  = np.arange(age, death_age+1)
 inc_all   = [0]*yrs_to_rot + [inc_now if action=="Rotate Now" else inc_ret]*(yrs_post+1)
 
-fig3, ax3 = plt.subplots(figsize=(10,4))
-ax3.plot(ages_all, mean_path, label="Capital (frozen post-rotation)")
-bars = ax3.bar(ages_all, inc_all, alpha=0.4, label="Annual Income")
-for bar in bars:
-    h = bar.get_height()
-    if h>0:
-        ax3.text(bar.get_x()+bar.get_width()/2, h, f'${h:,.0f}', ha='center', va='bottom', fontsize=8)
-ax3.axvline(rot_age or retire_age, color='green', linestyle='--', label="Rotation")
-ax3.axvline(retire_age, color='gray', linestyle='-.', label="Retirement")
-ax3.axvline(82, color='black', linestyle=':', label="Death Age (82)")
-ax3.set_xlabel("Age")
-ax3.set_ylabel("USD")
-ax3.legend()
-ax3.ticklabel_format(style='plain', axis='y')
-st.pyplot(fig3)
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(ages_all, mean_path, label="Capital (frozen post-rotation)", linewidth=2)
+bars = ax.bar(ages_all, inc_all, alpha=0.4, label="Annual Income")
+ax.bar_label(
+    bars,
+    labels=[f"${h:,.0f}" if h>0 else "" for h in inc_all],
+    padding=3,
+    fontsize=8,
+    rotation=90,
+    label_type='edge'
+)
+ax.axvline(rot_age or retire_age, color='green', linestyle='--', label="Rotation")
+ax.axvline(retire_age, color='gray', linestyle='-.', label="Retirement")
+ax.axvline(death_age, color='black', linestyle=':', label=f"Life Expectancy ({death_age})")
+ax.set_xlabel("Age")
+ax.set_ylabel("USD")
+ax.legend(loc='upper left')
+ax.ticklabel_format(style='plain', axis='y')
+plt.tight_layout()
+st.pyplot(fig)
