@@ -3,6 +3,7 @@ import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+import time
 
 # ---- SETTINGS ---- #
 default_shares    = 1650
@@ -88,13 +89,17 @@ with tool_tab:
         else "orange" if posterior >= 0.5
         else "red"
     )
-    st.markdown(
-        f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>",
-        unsafe_allow_html=True
-    )
+    st.markdown(f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>", unsafe_allow_html=True)
     st.markdown(f"**Action:** **{action}**")
     if rot_age is not None:
         st.markdown(f"**Rotation Age:** **{rot_age}**")
+
+    # ---- BAYESIAN DEBUG ---- #
+    with st.expander("🧮 Bayesian Debug Info"):
+        st.write(f"Data Points: {data_pts}")
+        st.write(f"Prior Successes: {prior_succ}")
+        st.write(f"Boost Points: {boost_pts}")
+        st.write(f"Posterior Formula: ({prior_succ} + {boost_pts} + 1) / ({data_pts} + 2) = {posterior:.3f}")
 
     # ---- ALLOCATION OPTIMIZER ---- #
     def score_alloc(x):
@@ -116,20 +121,16 @@ with tool_tab:
             proj_val * kept_frac * np.exp(
                 btc_return * yrs_post +
                 volatility * np.random.randn() * np.sqrt(yrs_post)
-            )
-            for _ in range(200)
+            ) for _ in range(200)
         ]
         cap_var = np.var(caps)
 
         alpha = inc_pref / 100
         return -(alpha * cum_inc + (1 - alpha) * kept_val - (1 - alpha) * risk_aversion * cap_var)
 
-    res = minimize(
-        score_alloc,
-        [1/3, 1/3, 1/3],
-        bounds=[(0,1)]*3,
-        constraints=({'type':'eq','fun':lambda x: sum(x)-1},)
-    )
+    res = minimize(score_alloc, [1/3, 1/3, 1/3],
+                   bounds=[(0,1)]*3,
+                   constraints=({'type':'eq','fun':lambda x: sum(x)-1},))
     opt = res.x if res.success else [1/3,1/3,1/3]
     msty_pct, strk_pct, strf_pct = [int(100*v) for v in opt]
 
@@ -138,7 +139,8 @@ with tool_tab:
     if manual:
         msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
         max_strk = 100 - msty_pct
-        strk_pct = st.slider("STRK (%)", 0, max_strk, min(strk_pct, max_strk)) if max_strk > 0 else 0
+        strk_pct = st.slider("STRK (%)", 0, max_strk, min(strk_pct, max_strk))
+        strf_pct = st.slider("STRF (%)", 0, 100, strf_pct, disabled=True)
         strf_pct = 100 - msty_pct - strk_pct
         if strf_pct < 0:
             st.error("Total >100%. Adjust sliders.")
@@ -159,9 +161,9 @@ with tool_tab:
         kept_val = proj_val * kept_frac * np.exp(btc_return * yrs_post)
         rot_amt  = proj_val * eff_rot
         ann_inc  = rot_amt * (
-            msty_pct/100 * msty_yield +
-            strk_pct/100 * strk_yield +
-            strf_pct/100 * strf_yield
+            msty_pct/100*msty_yield +
+            strk_pct/100*strk_yield +
+            strf_pct/100*strf_yield
         )
         cum_inc  = ann_inc * yrs_post
         return kept_val, cum_inc
@@ -213,7 +215,7 @@ with tool_tab:
         frozen = sim[yrs_pre] * (1 - keep_mstr_pct/100)
         grow   = sim[yrs_pre] * (keep_mstr_pct/100) * np.exp(
             (btc_return - 0.5*volatility**2)*(t-yrs_pre) +
-            volatility * np.random.randn(num_simulations) * np.sqrt(t-yrs_pre)
+            volatility * np.random.randn(num_simulations)*np.sqrt(t-yrs_pre)
         )
         sim[t] = frozen + grow
 
@@ -221,38 +223,46 @@ with tool_tab:
     ages_all  = np.arange(age, death_age+1)
     inc_all   = [0]*yrs_pre + [ci_now if action=="Rotate Now" else ci_ret]*(yrs_post+1)
 
-    fig, ax1 = plt.subplots(figsize=(10,4))
-    ax1.plot(ages_all, mean_path, label="Total Portfolio Value", color='tab:blue', linewidth=2)
-    ax1.set_xlabel("Age")
-    ax1.set_ylabel("Portfolio Value (USD)", color='tab:blue')
-    ax1.tick_params(axis='y', labelcolor='tab:blue')
-    ax1.ticklabel_format(style='plain', axis='y')
-
-    ax2 = ax1.twinx()
-    bars = ax2.bar(ages_all, inc_all, alpha=0.4, label="Annual Income", color='tab:orange', width=0.8)
-    ax2.set_ylabel("Annual Income (USD)", color='tab:orange')
-    ax2.tick_params(axis='y', labelcolor='tab:orange')
-    ax2.ticklabel_format(style='plain', axis='y')
-
-    ax2.bar_label(
-        bars,
+    # Static figure for playback toggle
+    fig_static, ax_s = plt.subplots(figsize=(10,4))
+    ax_s.plot(ages_all, mean_path, label="Total Portfolio Value", color='tab:blue', linewidth=2)
+    ax_s.set_xlabel("Age")
+    ax_s.set_ylabel("Portfolio Value (USD)", color='tab:blue')
+    ax_s.tick_params(axis='y', labelcolor='tab:blue')
+    ax_s.ticklabel_format(style='plain', axis='y')
+    ax2_s = ax_s.twinx()
+    bars_s = ax2_s.bar(ages_all, inc_all, alpha=0.4, color='tab:orange', width=0.8)
+    ax2_s.set_ylabel("Annual Income (USD)", color='tab:orange')
+    ax2_s.tick_params(axis='y', labelcolor='tab:orange')
+    ax2_s.ticklabel_format(style='plain', axis='y')
+    ax2_s.bar_label(
+        bars_s,
         labels=[f"${h:,.0f}" if h>0 else "" for h in inc_all],
         padding=3, fontsize=8, rotation=90, label_type='edge'
     )
-
     for age_line, style, lbl in [
         (rot_age or retire_age, '--', "Rotation"),
-        (retire_age, '-.', "Retirement"),
+        (retire_age, '-.', "Retire"),
         (death_age, ':', f"Life Exp ({death_age})")
     ]:
-        color = 'green' if lbl == "Rotation" else 'gray' if lbl == "Retirement" else 'black'
-        ax1.axvline(age_line, color=color, linestyle=style, label=lbl)
-
-    h1, l1 = ax1.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, loc='upper left')
+        color_line = 'green' if lbl=="Rotation" else 'gray' if lbl=="Retire" else 'black'
+        ax_s.axvline(age_line, color=color_line, linestyle=style, label=lbl)
+    h1, l1 = ax_s.get_legend_handles_labels()
+    h2, l2 = ax2_s.get_legend_handles_labels()
+    ax_s.legend(h1+h2, l1+l2, loc='upper left')
     plt.tight_layout()
-    st.pyplot(fig)
+
+    play = st.checkbox("▶️ Play Monte Carlo Paths")
+    placeholder = st.empty()
+    if play:
+        for i in range(min(20, num_simulations)):
+            fig, ax = plt.subplots(figsize=(10,4))
+            ax.plot(ages_all, sim[:,i], color='gray', alpha=0.3)
+            ax.plot(ages_all, mean_path, color='tab:blue', linewidth=2)
+            placeholder.pyplot(fig)
+            time.sleep(0.3)
+    else:
+        st.pyplot(fig_static)
 
 with doc_tab:
     st.title("📘 Documentation & Assumptions")
