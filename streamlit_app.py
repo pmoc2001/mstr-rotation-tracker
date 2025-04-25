@@ -32,13 +32,23 @@ with st.sidebar:
     threshold  = st.selectbox("Rotation Threshold ($)", [600_000, 750_000, 1_000_000])
 
     st.header("Core Signals & Preferences")
-    sth_sopa      = st.number_input("STH-SOPA", 1.00, step=0.01)
-    inc_pref      = st.slider("Income Preference (%)", 0, 100, 50)
-    btc_return    = st.slider("BTC Expected Annual Return (%)", 0.0, 50.0, 15.0, 0.1) / 100
-    risk_aversion = st.slider(
-        "Risk Aversion (more penalty on variance)", 
-        0.0, 1e-4, 1e-6, 1e-7
+    sth_sopa   = st.number_input("STH-SOPA", 1.00, step=0.01)
+    inc_pref   = st.slider("Income Preference (%)", 0, 100, 50)
+    btc_return = st.slider("BTC Expected Annual Return (%)", 0.0, 50.0, 15.0, 0.1) / 100
+
+    risk_choice = st.selectbox(
+        "Risk Profile",
+        ["Conservative", "Balanced", "Aggressive", "Degen"],
+        index=1,
+        help="How much to penalize portfolio variance when optimizing."
     )
+    risk_aversion_map = {
+        "Conservative": 1e-4,
+        "Balanced":     5e-5,
+        "Aggressive":   1e-5,
+        "Degen":        0.0
+    }
+    risk_aversion = risk_aversion_map[risk_choice]
 
     with st.expander("Advanced Signals (optional)"):
         sth_mvrv_z = st.number_input("STH-MVRV-Z", 1.00, step=0.1)
@@ -51,20 +61,16 @@ st.metric("💼 Portfolio Value", f"${current_value:,.0f}")
 # ---- BAYESIAN PROBABILITY ---- #
 data_pts = 100
 data_pts += 50 if sth_sopa > 1 else -25 if sth_sopa < 1 else 0
-
-# Optionally include advanced signals if set
 if 'sth_mvrv_z' in locals():
     data_pts += -25 if sth_mvrv_z > 6 else 0
 if 'fund_rate' in locals():
     data_pts += -25 if fund_rate > 0.1 else 0
-
 data_pts = max(data_pts, 10)
 
-age_frac = np.clip(1 - (retire_age - age) / 30, 0, 1)
-boost    = int(age_frac * 2) + (1 if current_value >= threshold else 0)
-
+age_frac  = np.clip(1 - (retire_age - age) / 30, 0, 1)
+boost_pts = int(age_frac * 2) + (1 if current_value >= threshold else 0)
 prior_succ = int(bayesian_prior * data_pts)
-posterior  = (prior_succ + boost + 1) / (data_pts + 2)
+posterior  = (prior_succ + boost_pts + 1) / (data_pts + 2)
 
 # ---- ROTATION DECISION ---- #
 if posterior >= 0.60:
@@ -77,7 +83,7 @@ else:
 st.subheader("🔁 Decision")
 color = "green" if posterior >= 0.6 else "orange" if posterior >= 0.5 else "red"
 st.markdown(
-    f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>", 
+    f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>",
     unsafe_allow_html=True
 )
 st.markdown(f"**Action:** **{action}**")
@@ -86,20 +92,20 @@ if rot_age is not None:
 
 # ---- ALLOCATION OPTIMIZER (RISK-ADJUSTED) ---- #
 def score_alloc(x):
-    target_age   = age if action == "Rotate Now" else retire_age
-    years_to_rot = target_age - age
-    proj         = current_value * np.exp(btc_return * years_to_rot)
-    rot_amt      = proj * rotation_percent
+    target = age if action == "Rotate Now" else retire_age
+    yrs_rot = target - age
+    proj_val = current_value * np.exp(btc_return * yrs_rot)
+    rot_amt  = proj_val * rotation_percent
 
-    ann_inc = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-    years_ret = max(0, 90 - retire_age)
-    cum_inc   = ann_inc * years_ret
+    ann_inc  = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
+    yrs_ret  = max(0, 90 - retire_age)
+    cum_inc  = ann_inc * yrs_ret
 
-    # simulate capital variance at retirement
+    # variance of capital at retirement
     caps = []
     for _ in range(200):
-        val = proj * (1 - rotation_percent)
-        val *= np.exp(btc_return * years_ret + volatility * np.random.randn() * np.sqrt(years_ret))
+        val = proj_val * (1 - rotation_percent)
+        val *= np.exp(btc_return * yrs_ret + volatility * np.random.randn() * np.sqrt(yrs_ret))
         caps.append(val)
     cap_var = np.var(caps)
 
@@ -111,7 +117,7 @@ res = minimize(
     score_alloc,
     [1/3, 1/3, 1/3],
     bounds=[(0,1)]*3,
-    constraints=({'type':'eq', 'fun': lambda x: sum(x)-1},)
+    constraints=({'type':'eq','fun':lambda x: sum(x)-1},)
 )
 opt = res.x if res.success else [1/3, 1/3, 1/3]
 msty_pct, strk_pct, strf_pct = [int(100*v) for v in opt]
@@ -121,13 +127,10 @@ manual = st.checkbox("Manual Allocation")
 if manual:
     msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
     max_strk = 100 - msty_pct
-    strk_pct = (
-        st.slider("STRK (%)", 0, max_strk, min(strk_pct, max_strk))
-        if max_strk > 0 else 0
-    )
+    strk_pct = st.slider("STRK (%)", 0, max_strk, min(strk_pct, max_strk)) if max_strk > 0 else 0
     strf_pct = 100 - msty_pct - strk_pct
     if strf_pct < 0:
-        st.error("Total >100%, adjust sliders.")
+        st.error("Total >100%. Adjust sliders.")
         strf_pct = 0
 else:
     st.markdown(f"- MSTY: **{msty_pct}%**, STRK: **{strk_pct}%**, STRF: **{strf_pct}%**")
