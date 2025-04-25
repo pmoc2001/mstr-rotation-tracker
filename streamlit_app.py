@@ -141,43 +141,45 @@ with tool_tab:
     def project(rotation_age):
         yrs      = rotation_age - age
         proj_val = current_value * np.exp(btc_return * yrs)
+
         eff_rot  = rotation_percent * (1 - keep_mstr_pct/100)
         kept_frac= rotation_percent * (keep_mstr_pct/100)
         yrs_post = max(0, 82 - rotation_age)
 
         kept_val = proj_val * kept_frac * np.exp(btc_return * yrs_post)
         rot_amt  = proj_val * eff_rot
-        ann_inc  = rot_amt * (
-            x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield
-        )
+        ann_inc  = rot_amt * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
         cum_inc  = ann_inc * yrs_post
+
         return kept_val, cum_inc
 
     kv_now, ci_now = project(age)
     kv_ret, ci_ret = project(retire_age)
 
     st.header("🔍 Comparison")
-    c1,c2,c3=st.columns(3)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.write("**Metric**"); st.write("MSTR @82"); st.write("Cum. Income")
     with c2:
         st.write("**Rotate Now**"); st.write(f"${kv_now:,.0f}"); st.write(f"${ci_now:,.0f}")
     with c3:
         st.write(f"**Rotate at {retire_age}**"); st.write(f"${kv_ret:,.0f}"); st.write(f"${ci_ret:,.0f}")
-    if (kv_now+ci_now)>(kv_ret+ci_ret):
+    if (kv_now+ci_now) > (kv_ret+ci_ret):
         st.success("▶️ Rotating Now yields the best combined outcome.")
     else:
         st.info(f"▶️ Waiting til {retire_age} yields better outcome.")
 
     # ---- TIMELINE ---- #
     st.subheader("📅 Timeline")
-    fig,ax=plt.subplots(figsize=(8,2))
-    ax.axvline(age,color='blue',label="Today")
-    if rot_age is not None: ax.axvline(rot_age,color='green',label="Rotate")
-    ax.axvline(retire_age,color='gray',linestyle='--',label="Retire")
+    fig, ax = plt.subplots(figsize=(8,2))
+    ax.axvline(age, color='blue', label="Today")
+    if rot_age is not None: ax.axvline(rot_age, color='green', label="Rotate")
+    ax.axvline(retire_age, color='gray', linestyle='--', label="Retire")
     lab = action if rot_age is not None else f"Rotate at {retire_age}"
-    ax.text((age+(rot_age or retire_age))/2,0.5,lab,ha='center')
-    ax.set_xlim(age-1,retire_age+1); ax.get_yaxis().set_visible(False); ax.legend()
+    ax.text((age + (rot_age or retire_age)) / 2, 0.5, lab, ha='center')
+    ax.set_xlim(age-1, retire_age+1)
+    ax.get_yaxis().set_visible(False)
+    ax.legend()
     st.pyplot(fig)
 
     # ---- CASH-FLOW OUTLOOK (DUAL-AXIS) ---- #
@@ -225,14 +227,16 @@ with tool_tab:
         label_type='edge'
     )
 
-    for age_line, style, lbl in [(rot_age or retire_age, '--', "Rotation"),
-                                 (retire_age, '-.', "Retire"),
-                                 (death_age, ':', f"Life Exp ({death_age})")]:
-        ax1.axvline(age_line, color='green' if lbl=="Rotation" else 'gray' if lbl=="Retire" else 'black',
+    for age_line, style, lbl in [
+        (rot_age or retire_age, '--', "Rotation"),
+        (retire_age, '-.', "Retire"),
+        (death_age, ':', f"Life Exp ({death_age})")
+    ]:
+        ax1.axvline(age_line, color='green' if lbl=="Rotation" else 'gray' if lbl=="Retire' else 'black',
                     linestyle=style, label=lbl)
 
-    h1,l1 = ax1.get_legend_handles_labels()
-    h2,l2 = ax2.get_legend_handles_labels()
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
     ax1.legend(h1+h2, l1+l2, loc='upper left')
     plt.tight_layout()
     st.pyplot(fig)
@@ -242,22 +246,22 @@ with doc_tab:
     st.markdown("""
     **Model Overview**
     - Projects MSTR growth to rotation age, splitting into:
-      - **Kept MSTR** (continues compounding)
-      - **Rotated slice** (into MSTY/STRK/STRF for income)
-    - Bayesian decision logic based on STH-SOPA and age proximity.
-    - Allocation optimizes income vs. kept capital, penalizing variance via Risk Profile.
+      - **Kept MSTR** continues compounding
+      - **Rotated slice** into income assets (MSTY/STRK/STRF)
+    - Bayesian decision logic driven by STH-SOPA & age proximity
+    - Allocation optimizes cumulative income + kept capital, penalizing variance
     
     **Inputs & Defaults**
     - Shares Held, Age, Retirement Age, Rotation Threshold
     - Keep in MSTR (%) slider
-    - STH-SOPA on-chain confidence signal
-    - Income Preference slider (income vs capital)
-    - BTC Expected Return (default 15% p.a.)
+    - STH-SOPA on-chain indicator
+    - Income Preference (%)
+    - BTC Expected Return (%)
     - Risk Profile (discrete variance penalty)
     - Yields: MSTY 15%, STRK/STRF 7%
     
     **Assumptions & Limitations**
-    - Lognormal returns, constant yields, no fees/taxes
-    - Life expectancy horizon: age 82
-    - Advanced signals optional refinement
+    - Lognormal growth, constant yields, no fees/taxes
+    - Horizon: age 82 life expectancy
+    - Advanced signals optional
     """)
