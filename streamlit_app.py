@@ -76,7 +76,8 @@ with tool_tab:
     market_sentiment = 0.6 * drawdown_score + 0.4 * ma_score
 
     age_frac = np.clip(1 - (retire_age - age) / 30, 0, 1)
-    goal_score = 0.5 * (1 if current_value >= threshold else 0) + 0.5 * age_frac
+    threshold_score = np.clip((current_value - threshold) / threshold, 0, 1)
+    goal_score = 0.5 * threshold_score + 0.5 * age_frac
 
     posterior = bayesian_prior + 0.3 * market_sentiment + 0.2 * goal_score
     posterior = np.clip(posterior, 0, 1)
@@ -99,11 +100,12 @@ with tool_tab:
     else:
         st.caption("💡 Holding until retirement maximizes BTC upside potential. It’s a high-growth strategy, but income generation will be deferred until then.")
 
-    with st.expander("\U0001F4C9 Market Sentiment Debug Info"):
+    with st.expander("📊 Market Sentiment & Threshold Debug Info"):
         st.write(f"Drawdown Score: {drawdown_score:.2f}")
         st.write(f"MA Score: {ma_score}")
         st.write(f"Market Sentiment Score: {market_sentiment:.2f}")
-        st.write(f"Goal Proximity Score: {goal_score:.2f}")
+        st.write(f"Threshold Score: {threshold_score:.2f}")
+        st.write(f"Goal Proximity Score (w/ age): {goal_score:.2f}")
         st.write(f"Final Posterior: {posterior:.3f}")
 
 # ---- ALLOCATION OPTIMIZER ---- #
