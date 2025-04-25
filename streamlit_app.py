@@ -84,34 +84,27 @@ with tool_tab:
 
     st.subheader("🔁 Decision")
     color = "green" if posterior >= 0.6 else "orange" if posterior >= 0.5 else "red"
-    st.markdown(
-        f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>",
-        unsafe_allow_html=True
-    )
+    st.markdown(f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>", unsafe_allow_html=True)
     st.markdown(f"**Action:** **{action}**")
     if rot_age is not None:
         st.markdown(f"**Rotation Age:** **{rot_age}**")
 
     # ---- ALLOCATION OPTIMIZER ---- #
     def score_alloc(x):
-        target    = age if action == "Rotate Now" else retire_age
-        yrs       = target - age
-        proj_val  = current_value * np.exp(btc_return * yrs)
+        target     = age if action == "Rotate Now" else retire_age
+        yrs_to_rot = target - age
+        proj_val   = current_value * np.exp(btc_return * yrs_to_rot)
 
-        # split kept vs rotated
-        eff_rot   = rotation_percent * (1 - keep_mstr_pct/100)
-        kept_frac = rotation_percent * (keep_mstr_pct/100)
+        eff_rot    = rotation_percent * (1 - keep_mstr_pct/100)
+        kept_frac  = rotation_percent * (keep_mstr_pct/100)
 
-        # kept MSTR value at death
-        yrs_post  = max(0, 82 - target)
-        kept_val  = proj_val * kept_frac * np.exp(btc_return * yrs_post)
+        yrs_post   = max(0, 82 - target)
+        kept_val   = proj_val * kept_frac * np.exp(btc_return * yrs_post)
 
-        # rotated income
-        rot_amt   = proj_val * eff_rot
-        ann_inc   = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-        cum_inc   = ann_inc * yrs_post
+        rot_amt    = proj_val * eff_rot
+        ann_inc    = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
+        cum_inc    = ann_inc * yrs_post
 
-        # variance penalty on kept slice
         caps = []
         for _ in range(200):
             val = proj_val * kept_frac * np.exp(
@@ -124,12 +117,9 @@ with tool_tab:
         score = alpha * cum_inc + (1 - alpha) * kept_val - (1 - alpha) * risk_aversion * cap_var
         return -score
 
-    res = minimize(
-        score_alloc,
-        [1/3, 1/3, 1/3],
-        bounds=[(0,1)]*3,
-        constraints=({'type':'eq','fun':lambda x: sum(x)-1},)
-    )
+    res = minimize(score_alloc, [1/3,1/3,1/3],
+                   bounds=[(0,1)]*3,
+                   constraints=({'type':'eq','fun':lambda x: sum(x)-1},))
     opt = res.x if res.success else [1/3,1/3,1/3]
     msty_pct, strk_pct, strf_pct = [int(100*v) for v in opt]
 
@@ -157,103 +147,117 @@ with tool_tab:
 
         kept_val = proj_val * kept_frac * np.exp(btc_return * yrs_post)
         rot_amt  = proj_val * eff_rot
-        ann_inc  = rot_amt * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
+        ann_inc  = rot_amt * (
+            x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield
+        )
         cum_inc  = ann_inc * yrs_post
-
         return kept_val, cum_inc
 
     kv_now, ci_now = project(age)
     kv_ret, ci_ret = project(retire_age)
 
     st.header("🔍 Comparison")
-    c1, c2, c3 = st.columns(3)
+    c1,c2,c3=st.columns(3)
     with c1:
         st.write("**Metric**"); st.write("MSTR @82"); st.write("Cum. Income")
     with c2:
         st.write("**Rotate Now**"); st.write(f"${kv_now:,.0f}"); st.write(f"${ci_now:,.0f}")
     with c3:
         st.write(f"**Rotate at {retire_age}**"); st.write(f"${kv_ret:,.0f}"); st.write(f"${ci_ret:,.0f}")
-    if (kv_now+ci_now) > (kv_ret+ci_ret):
+    if (kv_now+ci_now)>(kv_ret+ci_ret):
         st.success("▶️ Rotating Now yields the best combined outcome.")
     else:
-        st.info(f"▶️ Waiting until age {retire_age} may yield a better combined outcome.")
+        st.info(f"▶️ Waiting til {retire_age} yields better outcome.")
 
     # ---- TIMELINE ---- #
     st.subheader("📅 Timeline")
-    fig, ax = plt.subplots(figsize=(8,2))
-    ax.axvline(age, color='blue', label="Today")
-    if rot_age is not None: ax.axvline(rot_age, color='green', label="Rotate")
-    ax.axvline(retire_age, color='gray', linestyle='--', label="Retire")
+    fig,ax=plt.subplots(figsize=(8,2))
+    ax.axvline(age,color='blue',label="Today")
+    if rot_age is not None: ax.axvline(rot_age,color='green',label="Rotate")
+    ax.axvline(retire_age,color='gray',linestyle='--',label="Retire")
     lab = action if rot_age is not None else f"Rotate at {retire_age}"
-    ax.text((age + (rot_age or retire_age)) / 2, 0.5, lab, ha='center')
-    ax.set_xlim(age-1, retire_age+1)
-    ax.get_yaxis().set_visible(False)
-    ax.legend()
+    ax.text((age+(rot_age or retire_age))/2,0.5,lab,ha='center')
+    ax.set_xlim(age-1,retire_age+1); ax.get_yaxis().set_visible(False); ax.legend()
     st.pyplot(fig)
 
-    # ---- CASH-FLOW OUTLOOK ---- #
+    # ---- CASH-FLOW OUTLOOK (DUAL-AXIS) ---- #
     st.subheader("📈 Cash-Flow Outlook Through Age 82")
-    death_age   = 82
-    yrs_pre     = (rot_age or retire_age) - age
-    yrs_post    = death_age - (rot_age or retire_age)
-    sim         = np.zeros((yrs_pre+yrs_post+1, num_simulations))
-    sim[0]      = current_value
+    death_age = 82
+    yrs_pre   = (rot_age or retire_age) - age
+    yrs_post  = death_age - (rot_age or retire_age)
 
-    # growth until rotation
+    sim     = np.zeros((yrs_pre+yrs_post+1, num_simulations))
+    sim[0]  = current_value
     for t in range(1, yrs_pre+1):
-        sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2)
-                                    + volatility * np.random.randn(num_simulations))
-    # freeze rotated slice, keep MSTR slice growing
+        sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2) + volatility*np.random.randn(num_simulations))
+
     for t in range(yrs_pre+1, yrs_pre+yrs_post+1):
-        # total = frozen rotated + growing kept
         frozen = sim[yrs_pre] * (1 - keep_mstr_pct/100)
-        grow   = sim[yrs_pre] * (keep_mstr_pct/100) * np.exp((btc_return - 0.5*volatility**2)* (t-yrs_pre)
-                                                            + volatility * np.random.randn(num_simulations) * np.sqrt(t-yrs_pre))
+        grow   = sim[yrs_pre] * (keep_mstr_pct/100) * np.exp(
+            (btc_return - 0.5*volatility**2)*(t-yrs_pre)
+            + volatility*np.random.randn(num_simulations)*np.sqrt(t-yrs_pre)
+        )
         sim[t] = frozen + grow
 
     mean_path = sim.mean(axis=1)
     ages_all  = np.arange(age, death_age+1)
     inc_all   = [0]*yrs_pre + [ci_now if action=="Rotate Now" else ci_ret]*(yrs_post+1)
 
-    fig2, ax2 = plt.subplots(figsize=(10,4))
-    ax2.plot(ages_all, mean_path, label="Total Portfolio Value", linewidth=2)
-    bars = ax2.bar(ages_all, inc_all, alpha=0.4, label="Annual Income")
+    fig, ax1 = plt.subplots(figsize=(10,4))
+    ax1.plot(ages_all, mean_path, label="Total Portfolio Value", color='tab:blue', linewidth=2)
+    ax1.set_xlabel("Age")
+    ax1.set_ylabel("Portfolio Value (USD)", color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.ticklabel_format(style='plain', axis='y')
+
+    ax2 = ax1.twinx()
+    bars = ax2.bar(ages_all, inc_all, alpha=0.4, label="Annual Income", color='tab:orange', width=0.8)
+    ax2.set_ylabel("Annual Income (USD)", color='tab:orange')
+    ax2.tick_params(axis='y', labelcolor='tab:orange')
+    ax2.ticklabel_format(style='plain', axis='y')
+
     ax2.bar_label(
         bars,
         labels=[f"${h:,.0f}" if h>0 else "" for h in inc_all],
-        padding=3, fontsize=8, rotation=90, label_type='edge'
+        padding=3,
+        fontsize=8,
+        rotation=90,
+        label_type='edge'
     )
-    ax2.axvline(rot_age or retire_age, color='green', linestyle='--', label="Rotation")
-    ax2.axvline(retire_age, color='gray', linestyle='-.', label="Retirement")
-    ax2.axvline(death_age, color='black', linestyle=':', label=f"Life Exp ({death_age})")
-    ax2.set_xlabel("Age"); ax2.set_ylabel("USD")
-    ax2.legend(loc='upper left'); ax2.ticklabel_format(style='plain', axis='y')
-    plt.tight_layout(); st.pyplot(fig2)
+
+    for age_line, style, lbl in [(rot_age or retire_age, '--', "Rotation"),
+                                 (retire_age, '-.', "Retire"),
+                                 (death_age, ':', f"Life Exp ({death_age})")]:
+        ax1.axvline(age_line, color='green' if lbl=="Rotation" else 'gray' if lbl=="Retire" else 'black',
+                    linestyle=style, label=lbl)
+
+    h1,l1 = ax1.get_legend_handles_labels()
+    h2,l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1+h2, l1+l2, loc='upper left')
+    plt.tight_layout()
+    st.pyplot(fig)
 
 with doc_tab:
     st.title("📘 Documentation & Assumptions")
     st.markdown("""
     **Model Overview**
-    - Projects your MSTR growth to rotation age, then splits:
-      - **Kept MSTR** continues growing at BTC return.
-      - **Rotated portion** allocated to MSTY/STRK/STRF for income.
-    - Bayesian decision (“Rotate Now”, “Later”, “Hold”) based on STH-SOPA and age.
-    - Optimal allocation balances cumulative income vs. kept capital, penalizing variance.
-
+    - Projects MSTR growth to rotation age, splitting into:
+      - **Kept MSTR** (continues compounding)
+      - **Rotated slice** (into MSTY/STRK/STRF for income)
+    - Bayesian decision logic based on STH-SOPA and age proximity.
+    - Allocation optimizes income vs. kept capital, penalizing variance via Risk Profile.
+    
     **Inputs & Defaults**
-    - **Shares Held**: number of MSTR shares.
-    - **Age / Retirement Age**: defines horizons.
-    - **Rotation Threshold**: value trigger for confidence boost.
-    - **Keep in MSTR (%)**: portion left in MSTR for growth.
-    - **STH-SOPA**: on-chain indicator for confidence.
-    - **Income Preference**: trade-off income vs. capital.
-    - **BTC Expected Return**: default 15% p.a.
-    - **Risk Profile**: discrete variance penalties.
-    - **Yields**: MSTY 15%, STRK/STRF 7%.
-
+    - Shares Held, Age, Retirement Age, Rotation Threshold
+    - Keep in MSTR (%) slider
+    - STH-SOPA on-chain confidence signal
+    - Income Preference slider (income vs capital)
+    - BTC Expected Return (default 15% p.a.)
+    - Risk Profile (discrete variance penalty)
+    - Yields: MSTY 15%, STRK/STRF 7%
+    
     **Assumptions & Limitations**
-    - Log-normal growth, constant yields, no fees/taxes.
-    - Life expectancy horizon: 82 years.
-    - Advanced signals are optional tweaks.
-
+    - Lognormal returns, constant yields, no fees/taxes
+    - Life expectancy horizon: age 82
+    - Advanced signals optional refinement
     """)
