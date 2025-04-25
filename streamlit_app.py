@@ -102,10 +102,137 @@ with tool_tab:
         st.write(f"Goal Proximity Score: {goal_score:.2f}")
         st.write(f"Final Posterior: {posterior:.3f}")
 
-    # Remainder of the original tool logic continues unchanged below this point
-    # (optimization, projection, comparison, timeline, and simulation playback)
+    # ---- ALLOCATION OPTIMIZER ---- #
+    def score_alloc(x):
+        target     = age if action=="Rotate Now" else retire_age
+        yrs_to_rot = target - age
+        proj_val   = current_value * np.exp(btc_return * yrs_to_rot)
 
-    # Would you like me to regenerate the rest of the tool below this with your updates preserved?
+        eff_rot    = rotation_percent * (1 - keep_mstr_pct/100)
+        kept_frac  = rotation_percent * (keep_mstr_pct/100)
+        yrs_post   = max(0, 82 - target)
+
+        kept_val   = proj_val * kept_frac * np.exp(btc_return * yrs_post)
+        rot_amt    = proj_val * eff_rot
+        ann_inc    = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
+        cum_inc    = ann_inc * yrs_post
+
+        caps = [
+            proj_val * kept_frac * np.exp(
+                btc_return*yrs_post + volatility*np.random.randn()*np.sqrt(yrs_post)
+            ) for _ in range(200)
+        ]
+        cap_var = np.var(caps)
+
+        alpha = inc_pref/100
+        return -(alpha*cum_inc + (1-alpha)*kept_val - (1-alpha)*risk_aversion*cap_var)
+
+    res = minimize(score_alloc, [1/3,1/3,1/3],
+                   bounds=[(0,1)]*3,
+                   constraints=({'type':'eq','fun':lambda x: sum(x)-1},))
+    opt = res.x if res.success else [1/3,1/3,1/3]
+    msty_pct, strk_pct, strf_pct = [int(100*v) for v in opt]
+
+    st.subheader("🔀 Allocation Recommendation")
+    manual = st.checkbox("Manual Allocation")
+    if manual:
+        msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
+        max_strk = 100 - msty_pct
+        strk_pct = st.slider("STRK (%)", 0, max_strk, strk_pct)
+        max_strf = 100 - msty_pct - strk_pct
+        strf_pct = st.slider("STRF (%)", 0, max_strf, strf_pct)
+        if msty_pct + strk_pct + strf_pct > 100:
+            st.error("Total exceeds 100%; adjust sliders.")
+    else:
+        st.markdown(f"- MSTY **{msty_pct}%**, STRK **{strk_pct}%**, STRF **{strf_pct}%**")
+    st.progress((msty_pct+strk_pct+strf_pct)/100)
+
+    # ---- PROJECT & COMPARISON ---- #
+    def project(rotation_age):
+        yrs      = rotation_age - age
+        proj_val = current_value * np.exp(btc_return * yrs)
+        eff_rot  = rotation_percent*(1-keep_mstr_pct/100)
+        kept_frac= rotation_percent*(keep_mstr_pct/100)
+        yrs_post = max(0,82-rotation_age)
+
+        kept_val = proj_val*kept_frac*np.exp(btc_return*yrs_post)
+        rot_amt  = proj_val*eff_rot
+        ann_inc  = rot_amt*(msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
+        cum_inc  = ann_inc*yrs_post
+        return kept_val, cum_inc
+
+    kv_now, ci_now = project(age)
+    kv_ret, ci_ret = project(retire_age)
+
+    st.header("🔍 Comparison")
+    c1,c2,c3 = st.columns(3)
+    with c1:
+        st.write("**Metric**"); st.write("MSTR @82"); st.write("Cum. Income")
+    with c2:
+        st.write("**Rotate Now**"); st.write(f"${kv_now:,.0f}"); st.write(f"${ci_now:,.0f}")
+    with c3:
+        st.write(f"**Rotate at {retire_age}**"); st.write(f"${kv_ret:,.0f}"); st.write(f"${ci_ret:,.0f}")
+    if (kv_now+ci_now)>(kv_ret+ci_ret):
+        st.success("▶️ Rotating Now yields the best combined outcome.")
+    else:
+        st.info(f"▶️ Waiting until age {retire_age} may yield a better outcome.")
+
+    # ---- TIMELINE ---- #
+    st.subheader("📅 Timeline")
+    fig, ax = plt.subplots(figsize=(8,2))
+    ax.axvline(age,color='blue',label="Today")
+    if rot_age is not None: ax.axvline(rot_age,color='green',label="Rotate")
+    ax.axvline(retire_age,color='gray',linestyle='--',label="Retire")
+    lab = action if rot_age is not None else f"Rotate at {retire_age}"
+    ax.text((age+(rot_age or retire_age))/2,0.5,lab,ha='center')
+    ax.set_xlim(age-1,retire_age+1); ax.get_yaxis().set_visible(False); ax.legend()
+    st.pyplot(fig)
+
+    # ---- CASH-FLOW OUTLOOK (DUAL-AXIS) ---- #
+    st.subheader("📈 Cash-Flow Outlook Through Age 82")
+    death_age = 82
+    yrs_pre   = (rot_age or retire_age) - age
+    yrs_post  = death_age - (rot_age or retire_age)
+
+    sim = np.zeros((yrs_pre+yrs_post+1,num_simulations))
+    sim[0] = current_value
+    for t in range(1,yrs_pre+1):
+        sim[t] = sim[t-1]*np.exp((btc_return-0.5*volatility**2)+volatility*np.random.randn(num_simulations))
+    for t in range(yrs_pre+1,yrs_pre+yrs_post+1):
+        frozen = sim[yrs_pre]*(1-keep_mstr_pct/100)
+        grow   = sim[yrs_pre]*(keep_mstr_pct/100)*np.exp((btc_return-0.5*volatility**2)*(t-yrs_pre)+volatility*np.random.randn(num_simulations)*np.sqrt(t-yrs_pre))
+        sim[t] = frozen+grow
+
+    mean_path = sim.mean(axis=1)
+    ages_all  = np.arange(age,death_age+1)
+    inc_all   = [0]*yrs_pre + [ci_now if action=="Rotate Now" else ci_ret]*(yrs_post+1)
+
+    fig_static, ax_s = plt.subplots(figsize=(10,4))
+    ax_s.plot(ages_all,mean_path,color='tab:blue',linewidth=2)
+    ax_s.set_xlabel("Age"); ax_s.set_ylabel("Portfolio Value (USD)",color='tab:blue')
+    ax_s.tick_params(axis='y',labelcolor='tab:blue'); ax_s.ticklabel_format(style='plain',axis='y')
+    ax2_s = ax_s.twinx()
+    bars_s= ax2_s.bar(ages_all,inc_all,alpha=0.4,color='tab:orange',width=0.8)
+    ax2_s.set_ylabel("Annual Income (USD)",color='tab:orange'); ax2_s.tick_params(axis='y',labelcolor='tab:orange')
+    ax2_s.ticklabel_format(style='plain',axis='y')
+    ax2_s.bar_label(bars_s,labels=[f"${h:,.0f}" if h>0 else "" for h in inc_all],padding=3,fontsize=8,rotation=90,label_type='edge')
+    for age_line,style,lbl in [(rot_age or retire_age,'--',"Rotation"),(retire_age,'-.',"Retire"),(death_age,':',f"Life Exp ({death_age})")]:
+        color_line='green' if lbl=="Rotation" else 'gray' if lbl=="Retire" else 'black'
+        ax_s.axvline(age_line,color=color_line,linestyle=style,label=lbl)
+    h1,l1=ax_s.get_legend_handles_labels(); h2,l2=ax2_s.get_legend_handles_labels()
+    ax_s.legend(h1+h2,l1+l2,loc='upper left'); plt.tight_layout()
+
+    play = st.checkbox("▶️ Play Monte Carlo Paths")
+    placeholder = st.empty()
+    if play:
+        for i in range(min(20,num_simulations)):
+            fig, ax = plt.subplots(figsize=(10,4))
+            ax.plot(ages_all, sim[:,i], color='gray', alpha=0.3)
+            ax.plot(ages_all, mean_path, color='tab:blue', linewidth=2)
+            placeholder.pyplot(fig)
+            time.sleep(0.3)
+    else:
+        st.pyplot(fig_static)
 
 with doc_tab:
     st.title("\U0001F4D8 Documentation & Assumptions")
