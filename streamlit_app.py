@@ -98,10 +98,9 @@ def score_alloc(x):
     rot_amt  = proj_val * rotation_percent
 
     ann_inc  = rot_amt * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-    yrs_ret  = max(0, 90 - retire_age)
+    yrs_ret  = max(0, 82 - retire_age)  # income through age 82
     cum_inc  = ann_inc * yrs_ret
 
-    # variance of capital at retirement
     caps = []
     for _ in range(200):
         val = proj_val * (1 - rotation_percent)
@@ -139,10 +138,10 @@ st.progress((msty_pct + strk_pct + strf_pct) / 100)
 
 # ---- PROJECTED INCOME & COMPARISON ---- #
 def project_outcomes(rotation_age):
-    yrs     = rotation_age - age
+    yrs      = rotation_age - age
     proj_val = current_value * np.exp(btc_return * yrs)
     rot_amt  = proj_val * rotation_percent
-    yrs_ret  = max(0, 90 - rotation_age)
+    yrs_ret  = max(0, 82 - rotation_age)
     cap_end  = rot_amt * (1 - rotation_percent) * np.exp(btc_return * yrs_ret)
     ann_inc  = rot_amt * (
         msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield
@@ -157,7 +156,7 @@ st.header("🔍 Comparison")
 c1, c2, c3 = st.columns(3)
 with c1:
     st.write("**Metric**")
-    st.write("Capital @90")
+    st.write("Capital @82")
     st.write("Cum. Income")
 with c2:
     st.write("**Rotate Now**")
@@ -177,8 +176,7 @@ else:
 st.subheader("📅 Timeline")
 fig, ax = plt.subplots(figsize=(8,2))
 ax.axvline(age, color='blue', label="Today")
-if rot_age is not None:
-    ax.axvline(rot_age, color='green', label="Rotate")
+if rot_age is not None: ax.axvline(rot_age, color='green', label="Rotate")
 ax.axvline(retire_age, color='gray', linestyle='--', label="Retire")
 label = action if rot_age is not None else f"Rotate at {retire_age}"
 ax.text((age + (rot_age or retire_age)) / 2, 0.5, label, ha='center')
@@ -187,31 +185,36 @@ ax.get_yaxis().set_visible(False)
 ax.legend()
 st.pyplot(fig)
 
-# ---- MONTE CARLO OUTLOOK ---- #
-st.subheader("📈 Outlook")
-yrs1 = (rot_age or retire_age) - age
-yrs2 = retire_age - (rot_age or retire_age)
-sim = np.zeros((yrs1+yrs2+1, num_simulations))
-sim[0] = current_value
-for t in range(1, yrs1+1):
+# ---- CASH-FLOW OUTLOOK THROUGH AGE 82 ---- #
+st.subheader("📈 Cash-Flow Outlook Through Age 82")
+yrs_to_rot = (rot_age or retire_age) - age
+yrs_post   = 82 - (rot_age or retire_age)
+sim        = np.zeros((yrs_to_rot+yrs_post+1, num_simulations))
+sim[0]     = current_value
+
+# Phase 1: growth
+for t in range(1, yrs_to_rot+1):
     sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2) + volatility*np.random.randn(num_simulations))
-sim[yrs1] *= (1 - rotation_percent)
-for t in range(yrs1+1, yrs1+yrs2+1):
-    sim[t] = sim[t-1] * np.exp((btc_return - 0.5*volatility**2) + volatility*np.random.randn(num_simulations))
+# Freeze capital at rotation
+for t in range(yrs_to_rot+1, yrs_to_rot+yrs_post+1):
+    sim[t] = sim[yrs_to_rot]
 
 mean_path = sim.mean(axis=1)
-ages = np.arange(age, retire_age+1)
+ages_all  = np.arange(age, 82+1)
+inc_all   = [0]*yrs_to_rot + [inc_now if action=="Rotate Now" else inc_ret]*(yrs_post+1)
 
-fig2, ax2 = plt.subplots()
-ax2.plot(ages, mean_path, label="Capital")
-inc_series = [0]*yrs1 + [inc_now if action=="Rotate Now" else inc_ret]*(yrs2+1)
-ax2.bar(ages, inc_series, alpha=0.4, label="Income")
-for idx, val in enumerate(inc_series):
-    if val > 0:
-        ax2.text(ages[idx], val, f"${val:,.0f}", ha='center', va='bottom', fontsize=8)
-ax2.axvline(retire_age, color='gray', linestyle='--')
-ax2.set_xlabel("Age")
-ax2.set_ylabel("USD")
-ax2.legend()
-ax2.ticklabel_format(style='plain', axis='y')
-st.pyplot(fig2)
+fig3, ax3 = plt.subplots(figsize=(10,4))
+ax3.plot(ages_all, mean_path, label="Capital (frozen post-rotation)")
+bars = ax3.bar(ages_all, inc_all, alpha=0.4, label="Annual Income")
+for bar in bars:
+    h = bar.get_height()
+    if h>0:
+        ax3.text(bar.get_x()+bar.get_width()/2, h, f'${h:,.0f}', ha='center', va='bottom', fontsize=8)
+ax3.axvline(rot_age or retire_age, color='green', linestyle='--', label="Rotation")
+ax3.axvline(retire_age, color='gray', linestyle='-.', label="Retirement")
+ax3.axvline(82, color='black', linestyle=':', label="Death Age (82)")
+ax3.set_xlabel("Age")
+ax3.set_ylabel("USD")
+ax3.legend()
+ax3.ticklabel_format(style='plain', axis='y')
+st.pyplot(fig3)
