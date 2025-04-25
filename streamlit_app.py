@@ -92,8 +92,12 @@ with tool_tab:
     color = "green" if posterior>=0.6 else "orange" if posterior>=0.5 else "red"
     st.markdown(f"**Rotation Probability:** <span style='color:{color}'>**{posterior:.1%}**</span>", unsafe_allow_html=True)
     st.markdown(f"**Action:** **{action}**")
-    if rot_age is not None:
-        st.markdown(f"**Rotation Age:** **{rot_age}**")
+    if action == "Rotate Now":
+        st.caption("💡 Rotating now helps lock in some gains while the market is favorable, enabling diversification into income assets without waiting for a possible downturn.")
+    elif action == "Rotate Later":
+        st.caption("💡 Rotation may be better timed later, allowing more BTC upside while staying flexible. You’re approaching optimal territory, but not quite there yet.")
+    else:
+        st.caption("💡 Holding until retirement maximizes BTC upside potential. It’s a high-growth strategy, but income generation will be deferred until then.")
 
     with st.expander("\U0001F4C9 Market Sentiment Debug Info"):
         st.write(f"Drawdown Score: {drawdown_score:.2f}")
@@ -102,7 +106,7 @@ with tool_tab:
         st.write(f"Goal Proximity Score: {goal_score:.2f}")
         st.write(f"Final Posterior: {posterior:.3f}")
 
-    # ---- ALLOCATION OPTIMIZER ---- #
+# ---- ALLOCATION OPTIMIZER ---- #
     def score_alloc(x):
         target     = age if action=="Rotate Now" else retire_age
         yrs_to_rot = target - age
@@ -237,23 +241,13 @@ with tool_tab:
 with doc_tab:
     st.title("\U0001F4D8 Documentation & Assumptions")
     st.markdown("""
-    **Model Overview**
-    - Projects MSTR growth to rotation age, splitting into:
-      - **Kept MSTR** continues compounding
-      - **Rotated slice** into income assets (MSTY/STRK/STRF)
-    - Bayesian decision logic now uses:
-      - BTC drawdown from ATH
-      - 200-day moving average
-      - Goal proximity (age + threshold)
-    - Allocation optimizes income + kept capital, penalizing variance via Risk Profile.
+    **Rotation Action Explanations**
 
-    **Inputs & Defaults**
-    - Shares Held, Age, Retirement Age, Rotation Threshold
-    - Keep in MSTR (%) slider
-    - Income Preference (%)
-    - BTC Expected Return (%) default 15%
-    - Risk Profile (discrete)
-    - Yields: MSTY 15%, STRK/STRF 7%
+    - **Rotate Now:** Lock in gains while BTC and MSTR are strong. Diversify into income-producing assets to reduce risk ahead of retirement.
+    - **Rotate Later:** Near the threshold, but not quite optimal. May benefit from short-term BTC upside before rotating.
+    - **Hold Until Retirement:** Maximize long-term BTC growth. Suitable if you don’t need income now and are comfortable with high volatility.
+
+    ---
 
     **Assumptions & Limitations**
     - Lognormal returns, constant yields, no fees/taxes.
