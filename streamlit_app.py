@@ -8,144 +8,128 @@ import subprocess
 # ---- PAGE CONFIG ---- #
 st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
 
-# --- Automatically get current Git commit hash ---
+# --- Git Version ---
 def get_git_commit_hash():
     try:
-        commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
-    except Exception:
-        commit_hash = "unknown"
-    return commit_hash
-
+        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except:
+        return "unknown"
 VERSION = get_git_commit_hash()
 
-# Display Title and Version
-st.title("Stack-O-Matic")
-st.caption(f"Version: `{VERSION}`")
-
-# --- Continue with your Streamlit app code ---
-tabs = st.tabs(["Decision Tool", "Documentation"])
-tool_tab, doc_tab = tabs
-
-
+st.title("📊 MSTR Retirement Decision Assistant")
+st.caption(f"Git Commit Version: `{VERSION}`")
 
 # ---- SETTINGS ---- #
 default_shares = 1650
 rotation_percent = 0.20
-bayesian_prior = 0.515
-num_simulations = 500
-volatility = 0.7
+btc_return = 0.15
 life_expectancy = 82
+msty_yield, strk_yield, strf_yield = 0.15, 0.07, 0.07
+tax_relief_rate = 0.40  # Higher rate taxpayer as default
 
-# Real-world yields
-msty_yield = 0.15
-strk_yield = 0.07
-strf_yield = 0.07
+# ---- INPUTS SIDEBAR ---- #
+with st.sidebar:
+    st.header("👤 Profile & Goals")
+    age = st.number_input("Current Age", 40, 70, 48)
+    retire_age = st.slider("Retirement Age", age+1, 75, age+7)
+    salary_monthly = st.number_input("Monthly Salary (£)", 1000, 20000, 5000, step=100)
+    desired_income = st.number_input("Desired Retirement Income (£)", 10000, 150000, 50000, step=1000)
 
+    st.header("📌 Portfolio & Assumptions")
+    shares = st.number_input("MSTR Shares Held", 0, 5000, default_shares, step=10)
+    keep_mstr_pct = st.slider("Keep in MSTR (%)", 0, 100, 20)
 
+# ---- LIVE MARKET DATA ---- #
+mstr_price = yf.Ticker("MSTR").history('1d')['Close'].iloc[-1]
+portfolio_value = mstr_price * shares
 
-with tool_tab:
-    st.title("📊 MSTR Retirement Decision Assistant")
-    st.markdown("Helps decide **when** and **how** to rotate MSTR into income-producing assets.")
+st.metric("💼 Current MSTR Portfolio Value", f"${portfolio_value:,.0f}")
 
-    # ---- LIVE PRICES ---- #
-    btc_hist = yf.Ticker("BTC-USD").history(period="1y")
-    btc_now = btc_hist['Close'].iloc[-1]
-    btc_ath = btc_hist['Close'].max()
-    btc_200dma = btc_hist['Close'].rolling(200).mean().iloc[-1]
-    mstr_price = yf.Ticker("MSTR").history(period="1d")['Close'].iloc[-1]
+# ---- TAX OPTIMIZATION: SIPP CONTRIBUTIONS ---- #
+st.header("💡 Pension Contribution Optimizer (UK SIPP)")
+monthly_contrib = st.slider("Monthly Pension Contribution (£)", 0, int(salary_monthly), int(salary_monthly*0.15), step=100)
 
-    drawdown = (btc_now - btc_ath) / btc_ath
-    above_200dma = btc_now > btc_200dma
+annual_contrib = monthly_contrib * 12
+tax_relief = annual_contrib * tax_relief_rate
+total_invested_annual = annual_contrib + tax_relief
 
-    # ---- SIDEBAR ---- #
-    with st.sidebar:
-        shares = st.number_input("Shares Held", value=default_shares, step=10)
-        age = st.number_input("Current Age", 48, 80, 48)
-        retire_age = st.slider("Retirement Age", age+1, 80, age+7)
-        threshold = st.selectbox("Rotation Threshold ($)", [600_000, 750_000, 1_000_000])
+st.markdown(f"""
+- **Annual Pension Contribution:** £{annual_contrib:,.0f}
+- **Annual Tax Relief (at {tax_relief_rate*100:.0f}%):** £{tax_relief:,.0f}
+- **Total Annual Investment:** **£{total_invested_annual:,.0f}**
+""")
 
-        st.header("Core Preferences")
-        inc_pref = st.slider("Income Preference (%)", 0, 100, 50)
-        btc_return = st.slider("BTC Expected Annual Return (%)", 0.0, 50.0, 15.0) / 100
-        keep_mstr_pct = st.slider("Keep in MSTR (%)", 0, 100, 20)
-        risk_choice = st.selectbox("Risk Profile", ["Conservative", "Balanced", "Aggressive", "Degen"])
-        risk_aversion = {"Conservative":1e-4, "Balanced":5e-5, "Aggressive":1e-5, "Degen":0.0}[risk_choice]
+years_to_retirement = retire_age - age
+future_value = np.fv(rate=btc_return, nper=years_to_retirement, pmt=-total_invested_annual, pv=0)
 
-    current_value = mstr_price * shares
-    st.metric("💼 Current Portfolio", f"${current_value:,.0f}")
+st.metric("Projected Pension Pot at Retirement", f"£{future_value:,.0f}")
 
-    # ---- DECISION SCORE (Simplified Weighted Scoring) ---- #
-    market_sentiment = 0.5 * (1 + drawdown) + 0.5 * above_200dma
-    age_factor = 1 - (retire_age - age)/30
-    threshold_factor = min(current_value/threshold, 1.0)
+# ---- ALLOCATION OPTIMIZER ---- #
+def allocation_objective(x):
+    projected_portfolio = portfolio_value * np.exp(btc_return * years_to_retirement)
+    rotate_amount = projected_portfolio * rotation_percent * (1 - keep_mstr_pct / 100)
+    annual_income = rotate_amount * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
+    return -annual_income
 
-    posterior = bayesian_prior + 0.3 * market_sentiment + 0.2 * (age_factor + threshold_factor)/2
-    posterior = np.clip(posterior, 0, 1)
+res = minimize(allocation_objective, [0.34, 0.33, 0.33],
+               bounds=[(0, 1)]*3, constraints={'type': 'eq', 'fun': lambda x: sum(x)-1})
+msty_pct, strk_pct, strf_pct = [int(100*v) for v in res.x]
 
-    action = ("Rotate Now" if posterior >= 0.60 else 
-              "Rotate Later" if posterior >= 0.50 else 
-              "Hold Until Retirement")
-    rot_age = age if action == "Rotate Now" else retire_age
+st.subheader("🔀 Optimal Allocation for Income Products")
+st.write(f"- MSTY: **{msty_pct}%**, STRK: **{strk_pct}%**, STRF: **{strf_pct}%**")
 
-    st.subheader("🔁 Decision")
-    st.markdown(f"**Rotation Probability:** {posterior:.1%} – **{action}**")
+# ---- PROJECTED INCOME & COMPARISON ---- #
+def project(ret_age):
+    proj_val = portfolio_value * np.exp(btc_return * (ret_age-age))
+    eff_rot = rotation_percent*(1-keep_mstr_pct/100)
+    yrs_post = life_expectancy - ret_age
+    rot_amt = proj_val * eff_rot
+    annual_income = rot_amt * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
+    cumulative_income = annual_income * yrs_post
+    return annual_income, cumulative_income
 
-    # ---- ALLOCATION OPTIMIZER ---- #
-    def score_alloc(x):
-        proj_val = current_value * np.exp(btc_return * (rot_age - age))
-        eff_rot = rotation_percent * (1 - keep_mstr_pct/100)
-        kept_frac = rotation_percent * keep_mstr_pct/100
-        yrs_post = life_expectancy - rot_age
-        kept_val = proj_val * kept_frac * np.exp(btc_return * yrs_post)
-        ann_inc = proj_val * eff_rot * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-        cum_inc = ann_inc * yrs_post
-        caps = [kept_val * np.exp(volatility*np.random.randn()*np.sqrt(yrs_post)) for _ in range(200)]
-        cap_var = np.var(caps)
-        alpha = inc_pref/100
-        return -(alpha*cum_inc + (1-alpha)*kept_val - (1-alpha)*risk_aversion*cap_var)
+ai_now, ci_now = project(age)
+ai_ret, ci_ret = project(retire_age)
 
-    res = minimize(score_alloc, [0.34, 0.33, 0.33],
-                   bounds=[(0,1)]*3,
-                   constraints={'type':'eq','fun':lambda x:sum(x)-1})
-    msty_pct, strk_pct, strf_pct = [int(100*v) for v in (res.x if res.success else [1/3]*3)]
+st.subheader("🔍 Retirement Income Outcomes")
+st.table({
+    "Metric": ["Annual Income", "Cumulative Income to 82"],
+    "If Rotated Now": [f"${ai_now:,.0f}", f"${ci_now:,.0f}"],
+    f"At Age {retire_age}": [f"${ai_ret:,.0f}", f"${ci_ret:,.0f}"]
+})
 
-    st.subheader("🔀 Allocation")
-    if st.checkbox("Manual Allocation"):
-        msty_pct = st.slider("MSTY (%)", 0, 100, msty_pct)
-        remaining_pct = 100 - msty_pct
-        strk_pct = st.slider("STRK (%)", 0, remaining_pct, min(strk_pct, remaining_pct))
-        strf_pct = 100 - msty_pct - strk_pct
-        st.write(f"STRF (%): {strf_pct}%")
-    else:
-        st.write(f"MSTY: {msty_pct}%, STRK: {strk_pct}%, STRF: {strf_pct}%")
+# ---- GRAPHICAL CASH-FLOW PROJECTION ---- #
+st.subheader("📈 Cash-Flow Projection")
+years = np.arange(age, life_expectancy+1)
+portfolio_vals = portfolio_value * np.exp(btc_return * (years - age))
 
-    # ---- REALISTIC PROJECTIONS ---- #
-    def project(age_proj):
-        proj_val = current_value * np.exp(btc_return * (age_proj-age))
-        eff_rot = rotation_percent * (1 - keep_mstr_pct/100)
-        kept_frac = rotation_percent * keep_mstr_pct/100
-        yrs_post = life_expectancy - age_proj
-        kept_val = proj_val * kept_frac * np.exp(btc_return * yrs_post)
-        ann_inc = proj_val * eff_rot * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
-        return kept_val, ann_inc * yrs_post
+fig, ax = plt.subplots(figsize=(10,4))
+ax.plot(years, portfolio_vals, label="Portfolio Value", color='blue')
 
-    kv_now, ci_now = project(age)
-    kv_ret, ci_ret = project(retire_age)
+annual_incomes = [0 if yr < retire_age else ai_ret for yr in years]
+ax2 = ax.twinx()
+ax2.bar(years, annual_incomes, color='orange', alpha=0.5, width=0.8, label='Annual Income')
 
-    st.subheader("🔍 Outcomes")
-    st.table({
-        "Metric": ["MSTR @82", "Cumulative Income"],
-        "Rotate Now": [f"${kv_now:,.0f}", f"${ci_now:,.0f}"],
-        "At Retirement": [f"${kv_ret:,.0f}", f"${ci_ret:,.0f}"]
-    })
+ax.set_xlabel("Age")
+ax.set_ylabel("Portfolio Value (£)", color='blue')
+ax2.set_ylabel("Annual Income (£)", color='orange')
+ax.tick_params(axis='y', labelcolor='blue')
+ax2.tick_params(axis='y', labelcolor='orange')
 
-with doc_tab:
-    st.title("📘 Documentation & Assumptions")
-    st.markdown("""
-    - Uses simplified weighted scoring method (not strictly Bayesian).
-    - Annual yields: MSTY 15%, STRK 7%, STRF 7%.
-    - Realistic outcomes shown, no inflation adjustments.
-    - No tax/fees considered.
-    - Investment horizon until age 82.
-    """)
+ax.axvline(retire_age, linestyle='--', color='gray', label='Retirement Age')
+ax.axvline(life_expectancy, linestyle=':', color='black', label='Life Expectancy (82)')
 
+fig.tight_layout()
+fig.legend(loc="upper left", bbox_to_anchor=(0.1,0.9))
+st.pyplot(fig)
+
+# ---- DOCUMENTATION TAB ---- #
+st.markdown("---")
+st.subheader("📖 Documentation & Assumptions")
+st.markdown("""
+- **Tax Relief Assumption:** Higher rate (40%) UK taxpayer.
+- **Returns Assumption:** Annual BTC return at 15%.
+- **Income Products:** MSTY (15%), STRK (7%), STRF (7%) yields.
+- **No inflation adjustments or taxes/fees considered.**
+- **Life Expectancy:** Calculations based on age 82.
+""")
