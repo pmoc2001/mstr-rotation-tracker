@@ -19,8 +19,8 @@ def get_git_commit_hash():
 VERSION = get_git_commit_hash()
 
 # Display Title and Version
-st.title("📊 MSTR Retirement Decision Assistant")
-st.caption(f"Git Commit Version: `{VERSION}`")
+st.title("Stack-O-Matic")
+st.caption(f"Version: `{VERSION}`")
 
 # --- Continue with your Streamlit app code ---
 tabs = st.tabs(["Decision Tool", "Documentation"])
