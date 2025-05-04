@@ -3,6 +3,23 @@ import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+import subprocess
+
+
+# --- Automatically get current Git commit hash ---
+def get_git_commit_hash():
+    try:
+        commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except Exception:
+        commit_hash = "unknown"
+    return commit_hash
+
+VERSION = get_git_commit_hash()
+
+# ---- PAGE CONFIG ---- #
+st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
+st.title("📊 MSTR Retirement Decision Assistant")
+st.caption(f"Git Commit Version: `{VERSION}`")
 
 # ---- SETTINGS ---- #
 default_shares = 1650
