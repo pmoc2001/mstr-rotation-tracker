@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import subprocess
 
+# ---- PAGE CONFIG ---- #
+st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
 
 # --- Automatically get current Git commit hash ---
 def get_git_commit_hash():
@@ -16,10 +18,15 @@ def get_git_commit_hash():
 
 VERSION = get_git_commit_hash()
 
-# ---- PAGE CONFIG ---- #
-st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
+# Display Title and Version
 st.title("📊 MSTR Retirement Decision Assistant")
 st.caption(f"Git Commit Version: `{VERSION}`")
+
+# --- Continue with your Streamlit app code ---
+tabs = st.tabs(["Decision Tool", "Documentation"])
+tool_tab, doc_tab = tabs
+
+
 
 # ---- SETTINGS ---- #
 default_shares = 1650
@@ -34,10 +41,7 @@ msty_yield = 0.15
 strk_yield = 0.07
 strf_yield = 0.07
 
-# ---- PAGE CONFIG ---- #
-st.set_page_config(page_title="MSTR Retirement Assistant", layout="wide")
-tabs = st.tabs(["Decision Tool", "Documentation"])
-tool_tab, doc_tab = tabs
+
 
 with tool_tab:
     st.title("📊 MSTR Retirement Decision Assistant")
