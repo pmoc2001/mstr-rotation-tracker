@@ -20,70 +20,85 @@ st.title("📊 MSTR Retirement Decision Assistant")
 st.caption(f"Git Commit Version: `{VERSION}`")
 
 # ---- SETTINGS ---- #
-default_shares = 1650
+default_shares = 100
 rotation_percent = 0.20
 btc_return = 0.15
 life_expectancy = 82
 msty_yield, strk_yield, strf_yield = 0.15, 0.07, 0.07
-tax_relief_rate = 0.40  # Higher rate taxpayer as default
 
 # ---- INPUTS SIDEBAR ---- #
 with st.sidebar:
     st.header("👤 Profile & Goals")
     age = st.number_input("Current Age", 40, 70, 48)
     retire_age = st.slider("Retirement Age", age+1, 75, age+7)
-    salary_monthly = st.number_input("Monthly Salary (£)", 1000, 20000, 5000, step=100)
+    salary_monthly = st.number_input("Monthly Salary (£)", 1000, 25000, 10000, step=500)
     desired_income = st.number_input("Desired Retirement Income (£)", 10000, 150000, 50000, step=1000)
 
-    st.header("📌 Portfolio & Assumptions")
+    st.header("📌 Portfolio")
     shares = st.number_input("MSTR Shares Held", 0, 5000, default_shares, step=10)
     keep_mstr_pct = st.slider("Keep in MSTR (%)", 0, 100, 20)
 
 # ---- LIVE MARKET DATA ---- #
 mstr_price = yf.Ticker("MSTR").history('1d')['Close'].iloc[-1]
 portfolio_value = mstr_price * shares
-
 st.metric("💼 Current MSTR Portfolio Value", f"${portfolio_value:,.0f}")
 
-# ---- TAX OPTIMIZATION: SIPP CONTRIBUTIONS ---- #
-st.header("💡 Pension Contribution Optimizer (UK SIPP)")
-monthly_contrib = st.slider("Monthly Pension Contribution (£)", 0, int(salary_monthly), int(salary_monthly*0.15), step=100)
+# ---- TAX OPTIMIZATION: £100k TAX TRAP ---- #
+st.header("🧮 £100k Tax Trap Optimizer")
 
-annual_contrib = monthly_contrib * 12
-tax_relief = annual_contrib * tax_relief_rate
-total_invested_annual = annual_contrib + tax_relief
+annual_salary = salary_monthly * 12
+personal_allowance = 12570
+allowance_reduction_threshold = 100000
+effective_tax_trap_limit = 125140
+
+def optimal_sipp_contrib(salary):
+    if salary <= allowance_reduction_threshold:
+        return 0
+    required_reduction = salary - allowance_reduction_threshold
+    optimal_contribution = min(required_reduction, salary - effective_tax_trap_limit)
+    return optimal_contribution
+
+opt_sipp_annual = optimal_sipp_contrib(annual_salary)
+monthly_opt_sipp = opt_sipp_annual / 12
 
 st.markdown(f"""
-- **Annual Pension Contribution:** £{annual_contrib:,.0f}
-- **Annual Tax Relief (at {tax_relief_rate*100:.0f}%):** £{tax_relief:,.0f}
-- **Total Annual Investment:** **£{total_invested_annual:,.0f}**
+- **Annual Salary:** £{annual_salary:,.0f}
+- **Optimal Annual SIPP Contribution to Avoid Trap:** **£{opt_sipp_annual:,.0f}** (£{monthly_opt_sipp:,.0f}/month)
+- **Effective Tax Savings:** **£{opt_sipp_annual * 0.60:,.0f}** *(approx. 60% combined relief due to regained allowance)*
 """)
 
-# Corrected future value calculation
+monthly_contrib = st.slider("Adjust Monthly Pension Contribution (£)", 0, int(salary_monthly), int(monthly_opt_sipp), step=100)
+
+annual_contrib = monthly_contrib * 12
+total_tax_relief = annual_contrib * 0.40
+total_invested_annual = annual_contrib + total_tax_relief
+
 years_to_retirement = retire_age - age
 future_value = total_invested_annual * (((1 + btc_return)**years_to_retirement - 1) / btc_return)
 
 st.metric("Projected Pension Pot at Retirement", f"£{future_value:,.0f}")
 
+# ---- ALLOCATION SLIDERS ---- #
+st.header("🔀 Allocation Sliders")
+col1, col2, col3 = st.columns(3)
 
-# ---- ALLOCATION OPTIMIZER ---- #
-def allocation_objective(x):
-    projected_portfolio = portfolio_value * np.exp(btc_return * years_to_retirement)
-    rotate_amount = projected_portfolio * rotation_percent * (1 - keep_mstr_pct / 100)
-    annual_income = rotate_amount * (x[0]*msty_yield + x[1]*strk_yield + x[2]*strf_yield)
-    return -annual_income
+with col1:
+    msty_pct = st.slider("MSTY (%)", 0, 100, 50)
+remaining_pct = 100 - msty_pct
 
-res = minimize(allocation_objective, [0.34, 0.33, 0.33],
-               bounds=[(0, 1)]*3, constraints={'type': 'eq', 'fun': lambda x: sum(x)-1})
-msty_pct, strk_pct, strf_pct = [int(100*v) for v in res.x]
+with col2:
+    strk_pct = st.slider("STRK (%)", 0, remaining_pct, remaining_pct // 2)
+strf_pct = 100 - msty_pct - strk_pct
 
-st.subheader("🔀 Optimal Allocation for Income Products")
-st.write(f"- MSTY: **{msty_pct}%**, STRK: **{strk_pct}%**, STRF: **{strf_pct}%**")
+with col3:
+    st.markdown(f"**STRF (%)**: {strf_pct}%")
 
-# ---- PROJECTED INCOME & COMPARISON ---- #
+st.progress((msty_pct+strk_pct+strf_pct)/100)
+
+# ---- RETIREMENT INCOME PROJECTIONS ---- #
 def project(ret_age):
-    proj_val = portfolio_value * np.exp(btc_return * (ret_age-age))
-    eff_rot = rotation_percent*(1-keep_mstr_pct/100)
+    proj_val = portfolio_value * np.exp(btc_return * (ret_age - age))
+    eff_rot = rotation_percent * (1 - keep_mstr_pct / 100)
     yrs_post = life_expectancy - ret_age
     rot_amt = proj_val * eff_rot
     annual_income = rot_amt * (msty_pct/100*msty_yield + strk_pct/100*strk_yield + strf_pct/100*strf_yield)
@@ -93,33 +108,32 @@ def project(ret_age):
 ai_now, ci_now = project(age)
 ai_ret, ci_ret = project(retire_age)
 
-st.subheader("🔍 Retirement Income Outcomes")
+st.subheader("📉 Retirement Income Outcomes")
 st.table({
     "Metric": ["Annual Income", "Cumulative Income to 82"],
-    "If Rotated Now": [f"${ai_now:,.0f}", f"${ci_now:,.0f}"],
+    "Rotate Now": [f"${ai_now:,.0f}", f"${ci_now:,.0f}"],
     f"At Age {retire_age}": [f"${ai_ret:,.0f}", f"${ci_ret:,.0f}"]
 })
 
 # ---- GRAPHICAL CASH-FLOW PROJECTION ---- #
-st.subheader("📈 Cash-Flow Projection")
 years = np.arange(age, life_expectancy+1)
 portfolio_vals = portfolio_value * np.exp(btc_return * (years - age))
-
-fig, ax = plt.subplots(figsize=(10,4))
-ax.plot(years, portfolio_vals, label="Portfolio Value", color='blue')
-
 annual_incomes = [0 if yr < retire_age else ai_ret for yr in years]
-ax2 = ax.twinx()
-ax2.bar(years, annual_incomes, color='orange', alpha=0.5, width=0.8, label='Annual Income')
 
-ax.set_xlabel("Age")
-ax.set_ylabel("Portfolio Value (£)", color='blue')
+fig, ax1 = plt.subplots(figsize=(10,4))
+ax1.plot(years, portfolio_vals, label="Portfolio Value (£)", color='blue')
+ax1.set_xlabel("Age")
+ax1.set_ylabel("Portfolio Value (£)", color='blue')
+ax1.tick_params(axis='y', colors='blue')
+
+ax2 = ax1.twinx()
+bars = ax2.bar(years, annual_incomes, color='orange', alpha=0.5, label='Annual Income (£)')
 ax2.set_ylabel("Annual Income (£)", color='orange')
-ax.tick_params(axis='y', labelcolor='blue')
-ax2.tick_params(axis='y', labelcolor='orange')
+ax2.tick_params(axis='y', colors='orange')
+ax2.bar_label(bars, padding=3, fontsize=8, rotation=90)
 
-ax.axvline(retire_age, linestyle='--', color='gray', label='Retirement Age')
-ax.axvline(life_expectancy, linestyle=':', color='black', label='Life Expectancy (82)')
+ax1.axvline(retire_age, linestyle='--', color='grey', label='Retirement Age')
+ax1.axvline(life_expectancy, linestyle=':', color='black', label='Life Expectancy (82)')
 
 fig.tight_layout()
 fig.legend(loc="upper left", bbox_to_anchor=(0.1,0.9))
@@ -129,9 +143,10 @@ st.pyplot(fig)
 st.markdown("---")
 st.subheader("📖 Documentation & Assumptions")
 st.markdown("""
-- **Tax Relief Assumption:** Higher rate (40%) UK taxpayer.
-- **Returns Assumption:** Annual BTC return at 15%.
-- **Income Products:** MSTY (15%), STRK (7%), STRF (7%) yields.
-- **No inflation adjustments or taxes/fees considered.**
-- **Life Expectancy:** Calculations based on age 82.
+- **£100k tax trap modeling included** (UK specific).
+- **Annual BTC growth assumption:** 15%.
+- **Income yields:** MSTY (15%), STRK (7%), STRF (7%).
+- **Inflation, additional taxes/fees not modeled explicitly.**
+- **Life expectancy used:** Age 82.
+- **Tax relief assumes higher rate (40%) taxpayer.**
 """)
