@@ -59,10 +59,12 @@ st.markdown(f"""
 - **Total Annual Investment:** **£{total_invested_annual:,.0f}**
 """)
 
+# Corrected future value calculation
 years_to_retirement = retire_age - age
-future_value = np.fv(rate=btc_return, nper=years_to_retirement, pmt=-total_invested_annual, pv=0)
+future_value = total_invested_annual * (((1 + btc_return)**years_to_retirement - 1) / btc_return)
 
 st.metric("Projected Pension Pot at Retirement", f"£{future_value:,.0f}")
+
 
 # ---- ALLOCATION OPTIMIZER ---- #
 def allocation_objective(x):
